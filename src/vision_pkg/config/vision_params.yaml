@@ -1,14 +1,19 @@
+# model_path (liquid_height_detector_node) and image_dir (side_camera_node)
+# are intentionally NOT set here - vision_launch.py fills them in with
+# defaults that point at the weights/ and sample_images/ bundled inside this
+# package, so a fresh clone works with zero configuration. Override them with
+# launch arguments (model_path:=..., image_dir:=..., source_mode:=device,
+# camera_index:=...) to use your own camera/model instead.
+
 side_camera_node:
   ros__parameters:
     # source_mode: "device" (USB/webcam via cv2.VideoCapture index),
     #              "video_file" (loop a recorded video),
     #              "image_dir" (cycle through a directory of test images -
-    #                           used for development without physical hardware,
-    #                           e.g. the reagent dataset val images)
+    #                           used for development without physical hardware)
     source_mode: "image_dir"
     camera_index: 0
     video_path: ""
-    image_dir: "/home/jiwan/datasets/rokey_1st_project_train_dataset/images/val"
     image_loop: true
     publish_rate_hz: 2.0
     frame_width: 1280
@@ -16,7 +21,6 @@ side_camera_node:
 
 liquid_height_detector_node:
   ros__parameters:
-    model_path: "/home/jiwan/webcam_yolo_project/autolabelling/reagent_full_train/rokey_1st_autolabel_finetune_3class/weights/best.pt"
     device: "cpu"
     confidence_threshold: 0.4
     num_tubes: 3

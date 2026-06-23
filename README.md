@@ -134,14 +134,18 @@ else:
 
 ## 11. Demo
 
+처음 클론한 환경에서 설정 없이 실행하는 방법은 **[SETUP.md](SETUP.md)** 참고. 요약:
+
 ```bash
+pip3 install -r requirements.txt
+source /opt/ros/humble/setup.bash
 colcon build
 source install/setup.bash
 ros2 launch launch/system_launch.py            # vision + robot_control + hmi
 ros2 launch launch/system_launch.py launch_hmi:=false   # HMI 없이
 ```
 
-기본 설정은 `vision_pkg/config/vision_params.yaml`의 `image_dir`(reagent 데이터셋 val 이미지)을 순환 재생하여 실제 카메라 없이도 YOLOv8n 추론 전체 파이프라인을 시연할 수 있다. 실제 카메라 사용 시 `source_mode: device`로 변경한다.
+`vision_pkg`에 YOLOv8n weight(`weights/reagent_yolov8n.pt`)와 hand 없는 샘플 이미지 10장(`sample_images/`)이 번들되어 있어, 추가 설정/외부 데이터셋 없이도 실제 YOLOv8n 추론 전체 파이프라인을 바로 시연할 수 있다. 실제 카메라/모델 사용법은 SETUP.md의 6번 항목 참고 (`source_mode:=device camera_index:=0`, `model_path:=...` 등 launch argument로 전달).
 
 ## 12. Team Members
 
@@ -152,6 +156,8 @@ ros2 launch launch/system_launch.py launch_hmi:=false   # HMI 없이
 ```
 project-root/
 ├── README.md
+├── SETUP.md                 # 환경 구성 가이드 (clone부터 실행까지)
+├── requirements.txt          # pip 의존성 (ultralytics, opencv-python, numpy, Pillow)
 ├── docs/
 │   ├── system_architecture.md
 │   ├── network_diagram.md
@@ -161,6 +167,8 @@ project-root/
 ├── src/
 │   ├── interfaces/          # custom msg/srv (ament_cmake)
 │   ├── vision_pkg/          # camera + YOLOv8n detector + state publisher
+│   │   ├── weights/         # 번들된 YOLOv8n weight (cup/height/hand, 6MB)
+│   │   └── sample_images/   # 카메라 없이 테스트할 샘플 이미지 10장
 │   ├── robot_control_pkg/   # decision logic + mock Doosan M0609 control
 │   └── hmi_pkg/             # Tkinter operator dashboard
 ├── assets/

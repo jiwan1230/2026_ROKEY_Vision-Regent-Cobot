@@ -1,0 +1,7 @@
+# Python dependencies NOT covered by rosdep/apt (ROS2 Humble already
+# provides rclpy, std_msgs, sensor_msgs, etc. via apt packages).
+# Install with: pip3 install -r requirements.txt
+ultralytics>=8.0
+opencv-python>=4.5
+numpy>=1.24
+Pillow>=9.0

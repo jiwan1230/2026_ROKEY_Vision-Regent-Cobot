@@ -14,6 +14,8 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*_launch.py")),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
+        (os.path.join("share", package_name, "weights"), glob("weights/*.pt")),
+        (os.path.join("share", package_name, "sample_images"), glob("sample_images/*.jpg")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
