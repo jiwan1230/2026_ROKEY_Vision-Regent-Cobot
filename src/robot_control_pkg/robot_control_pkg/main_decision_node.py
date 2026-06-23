@@ -1,0 +1,109 @@
+"""Main PC decision logic.
+
+Watches /vision/tube_state (plus the /vision/camera_status and
+/vision/hand_detected safety signals) and, whenever a new actionable state
+snapshot arrives and the robot is idle, calls /robot/start_task with that
+snapshot. robot_task_manager_node only ever acts on the highest-priority
+tier present (State2 > State0 > State1), so this node's reactive loop is
+what drives the multi-cycle scenarios (A/B/D) in the spec doc to
+completion: each recheck triggers a fresh /vision/tube_state, which is
+re-evaluated here and may trigger the next tier's task.
+"""
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Bool
+
+from interfaces.msg import TubeState
+from interfaces.srv import StartTask, StopTask
+
+
+class MainDecisionNode(Node):
+    def __init__(self):
+        super().__init__("main_decision_node")
+
+        self.declare_parameter("num_tubes", 3)
+        self.num_tubes = int(self.get_parameter("num_tubes").value)
+
+        self.busy = False
+        self.camera_ok = True
+        self.hand_detected = False
+        self.tray_transferred = False
+
+        self.start_task_client = self.create_client(StartTask, "/robot/start_task")
+        self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
+
+        self.create_subscription(TubeState, "/vision/tube_state", self.on_tube_state, 10)
+        self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
+        self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
+
+        self.get_logger().info("main_decision_node ready")
+
+    def on_camera_status(self, msg: Bool):
+        self.camera_ok = msg.data
+
+    def on_hand_detected(self, msg: Bool):
+        was_clear = not self.hand_detected
+        self.hand_detected = msg.data
+        if msg.data and was_clear and self.busy:
+            self.get_logger().warn("Hand detected in work area - requesting emergency stop")
+            self.stop_task_client.call_async(StopTask.Request(stop=True))
+
+    def on_tube_state(self, msg: TubeState):
+        if self.busy:
+            return
+        if not self.camera_ok:
+            self.get_logger().warn("Camera not OK - robot motion withheld")
+            return
+        if self.hand_detected:
+            self.get_logger().warn("Hand detected in work area - robot motion withheld")
+            return
+        if TubeState.STATE_UNKNOWN in msg.state:
+            self.get_logger().warn(f"Unknown tube state present {list(msg.state)} - withholding task")
+            return
+        if len(msg.tube_index) < self.num_tubes:
+            self.get_logger().warn("Incomplete tube state array - withholding task")
+            return
+
+        all_normal = all(s == TubeState.STATE_NORMAL for s in msg.state)
+        if all_normal and self.tray_transferred:
+            return  # already transferred; nothing new to do until a tube deviates again
+        if not all_normal:
+            self.tray_transferred = False
+
+        if not self.start_task_client.service_is_ready():
+            self.get_logger().warn("/robot/start_task not available yet")
+            return
+
+        request = StartTask.Request(tube_index=list(msg.tube_index), state=list(msg.state))
+        self.busy = True
+        self.get_logger().info(f"Dispatching start_task for state={list(msg.state)}")
+        future = self.start_task_client.call_async(request)
+        future.add_done_callback(lambda f: self.on_start_task_done(f, all_normal))
+
+    def on_start_task_done(self, future, was_all_normal):
+        self.busy = False
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"start_task call failed: {e}")
+            return
+
+        self.get_logger().info(f"start_task result: success={result.success} message={result.message}")
+        if was_all_normal and result.success:
+            self.tray_transferred = True
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = MainDecisionNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

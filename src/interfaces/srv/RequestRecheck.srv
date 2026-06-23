@@ -1,0 +1,6 @@
+# Robot requests vision system to re-inspect tubes after refill/dispose
+
+bool request
+---
+bool success
+string message

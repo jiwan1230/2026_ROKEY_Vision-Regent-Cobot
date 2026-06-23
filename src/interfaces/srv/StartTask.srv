@@ -1,0 +1,7 @@
+# Main PC or HMI requests robot to start a sorting/refill/dispose task
+
+int32[] tube_index
+int32[] state
+---
+bool success
+string message

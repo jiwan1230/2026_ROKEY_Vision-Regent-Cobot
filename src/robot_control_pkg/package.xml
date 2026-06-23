@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_control_pkg</name>
+  <version>0.1.0</version>
+  <description>Main PC decision logic and mock Doosan M0609 collaborative robot control for the reagent quality inspection system. The mock motion/gripper nodes are written to mirror the real DSR_ROBOT2 API (movej/movel/posx, RG gripper) used in this team's other Doosan bootcamp packages, so they can be swapped for real calls later.</description>
+  <maintainer email="gwanshin12301230@gmail.com">jiwan</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>interfaces</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

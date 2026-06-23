@@ -1,0 +1,9 @@
+# Internal service (not explicit in spec doc, added to realize the
+# robot_task_manager_node -> doosan_robot_control_node link in the node graph).
+# Requests the arm to move to a named pose defined in robot_control_pkg/config/robot_params.yaml
+# (e.g. tube_0_approach_pose, tube_0_pick_pose, refill_pose, waste_pose, normal_tray_pose, home_pose)
+
+string pose_name
+---
+bool success
+string message

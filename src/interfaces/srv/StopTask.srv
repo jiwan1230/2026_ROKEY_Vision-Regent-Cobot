@@ -1,0 +1,6 @@
+# Emergency stop / task abort request
+
+bool stop
+---
+bool success
+string message

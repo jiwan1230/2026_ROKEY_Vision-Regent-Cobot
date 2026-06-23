@@ -1,0 +1,58 @@
+# All poses are [x, y, z, rx, ry, rz] in the Doosan posx convention (mm, deg),
+# matching the format used by movej/movel/posx in DSR_ROBOT2. Values below are
+# placeholder coordinates for the mock controller; replace with the real
+# taught/calibrated poses when wiring up doosan_robot2 + the physical M0609.
+#
+# Design rule (spec doc section 13): every coordinate is split into an
+# "approach" pose (safe height above the tube) and a "pick"/"refill" pose
+# (the actual working height), so the arm always descends/retreats vertically.
+
+doosan_robot_control_node:
+  ros__parameters:
+    velocity: 60.0
+    acceleration: 60.0
+    move_duration_sec: 0.4
+
+    pose_names: [
+      "home_pose",
+      "waste_pose",
+      "normal_tray_approach_pose",
+      "normal_tray_pose",
+      "tray_pick_pose",
+      "tube_0_approach_pose", "tube_0_pick_pose", "tube_0_refill_pose",
+      "tube_1_approach_pose", "tube_1_pick_pose", "tube_1_refill_pose",
+      "tube_2_approach_pose", "tube_2_pick_pose", "tube_2_refill_pose"
+    ]
+
+    poses.home_pose: [400.0, 0.0, 400.0, 0.0, 180.0, 0.0]
+    poses.waste_pose: [500.0, -350.0, 200.0, 0.0, 180.0, 0.0]
+    poses.normal_tray_approach_pose: [500.0, 350.0, 300.0, 0.0, 180.0, 0.0]
+    poses.normal_tray_pose: [500.0, 350.0, 150.0, 0.0, 180.0, 0.0]
+    poses.tray_pick_pose: [400.0, 0.0, 180.0, 0.0, 180.0, 0.0]
+
+    poses.tube_0_approach_pose: [300.0, -150.0, 300.0, 0.0, 180.0, 0.0]
+    poses.tube_0_pick_pose: [300.0, -150.0, 160.0, 0.0, 180.0, 0.0]
+    poses.tube_0_refill_pose: [300.0, -150.0, 220.0, 0.0, 180.0, 0.0]
+
+    poses.tube_1_approach_pose: [400.0, 0.0, 300.0, 0.0, 180.0, 0.0]
+    poses.tube_1_pick_pose: [400.0, 0.0, 160.0, 0.0, 180.0, 0.0]
+    poses.tube_1_refill_pose: [400.0, 0.0, 220.0, 0.0, 180.0, 0.0]
+
+    poses.tube_2_approach_pose: [500.0, 150.0, 300.0, 0.0, 180.0, 0.0]
+    poses.tube_2_pick_pose: [500.0, 150.0, 160.0, 0.0, 180.0, 0.0]
+    poses.tube_2_refill_pose: [500.0, 150.0, 220.0, 0.0, 180.0, 0.0]
+
+gripper_control_node:
+  ros__parameters:
+    move_duration_sec: 0.3
+
+robot_task_manager_node:
+  ros__parameters:
+    num_tubes: 3
+    grip_retry_count: 1
+    recheck_timeout_sec: 5.0
+
+main_decision_node:
+  ros__parameters:
+    num_tubes: 3
+    decision_cooldown_sec: 1.0

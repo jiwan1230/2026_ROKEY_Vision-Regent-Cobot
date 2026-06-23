@@ -1,0 +1,35 @@
+side_camera_node:
+  ros__parameters:
+    # source_mode: "device" (USB/webcam via cv2.VideoCapture index),
+    #              "video_file" (loop a recorded video),
+    #              "image_dir" (cycle through a directory of test images -
+    #                           used for development without physical hardware,
+    #                           e.g. the reagent dataset val images)
+    source_mode: "image_dir"
+    camera_index: 0
+    video_path: ""
+    image_dir: "/home/jiwan/datasets/rokey_1st_project_train_dataset/images/val"
+    image_loop: true
+    publish_rate_hz: 2.0
+    frame_width: 1280
+    frame_height: 720
+
+liquid_height_detector_node:
+  ros__parameters:
+    model_path: "/home/jiwan/webcam_yolo_project/autolabelling/reagent_full_train/rokey_1st_autolabel_finetune_3class/weights/best.pt"
+    device: "cpu"
+    confidence_threshold: 0.4
+    num_tubes: 3
+    # Physical full height of a tube in mm, used to convert the
+    # cup-vs-liquid bounding box ratio into a calibrated liquid height.
+    tube_height_mm: 100.0
+    hand_safety_enabled: true
+    camera_timeout_sec: 3.0
+
+tube_state_publisher_node:
+  ros__parameters:
+    target_height: 60.0
+    tolerance: 10.0
+    refill_min: 20.0
+    overflow_max: 95.0
+    confidence_threshold: 0.4

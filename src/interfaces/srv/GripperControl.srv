@@ -1,0 +1,10 @@
+# Internal service (not explicit in spec doc, added to realize the
+# doosan_robot_control_node -> gripper_control_node link in the node graph).
+
+string COMMAND_OPEN = "OPEN"
+string COMMAND_CLOSE = "CLOSE"
+
+string command
+---
+bool success
+string message
