@@ -4,6 +4,8 @@
 # (e.g. tube_0_approach_pose, tube_0_pick_pose, refill_pose, waste_pose, normal_tray_pose, home_pose)
 
 string pose_name
+string move_type #'move', 'down', 'donw_tray', 'rotate'
+float32 current_ratio
 ---
 bool success
 string message

@@ -9,42 +9,62 @@
 
 doosan_robot_control_node:
   ros__parameters:
-    velocity: 60.0
-    acceleration: 60.0
-    move_duration_sec: 0.4
+    m_velocity: 60.0
+    m_acceleration: 60.0
+    d_velocity: 30.0
+    d_acceleration: 30.0
+    tray_gap : 50
+    tray_crood : 0
 
     pose_names: [
       "home_pose",
       "waste_pose",
+      "waste_down_pose",
       "normal_tray_approach_pose",
       "normal_tray_pose",
       "tray_pick_pose",
+      "pick_tool_pose", "pick_tool_down_pose",
+      "refill_pose",
       "tube_0_approach_pose", "tube_0_pick_pose", "tube_0_refill_pose",
       "tube_1_approach_pose", "tube_1_pick_pose", "tube_1_refill_pose",
       "tube_2_approach_pose", "tube_2_pick_pose", "tube_2_refill_pose"
     ]
 
-    poses.home_pose: [400.0, 0.0, 400.0, 0.0, 180.0, 0.0]
-    poses.waste_pose: [500.0, -350.0, 200.0, 0.0, 180.0, 0.0]
-    poses.normal_tray_approach_pose: [500.0, 350.0, 300.0, 0.0, 180.0, 0.0]
-    poses.normal_tray_pose: [500.0, 350.0, 150.0, 0.0, 180.0, 0.0]
-    poses.tray_pick_pose: [400.0, 0.0, 180.0, 0.0, 180.0, 0.0]
+    #기본 위치(트레이 중앙)
+    poses.home_pose: [400.0, 0.0, 350.0, 90.0, 180.0, -90.0]
+    #폐기 상단 위치
+    poses.waste_pose: [200.0, -200.0, 350.0, 90.0, 180.0, -90.0]
+    #폐기 하단 위치
+    poses.waste_down_pose: [200.0, -200.0, 160.0, 90.0, 180.0, -90.0]
+    #트레이 상단 위치(정상 상태인 트레이 놓는 위치)
+    poses.normal_tray_approach_pose: [500.0, 350.0, 350.0, 90.0, 180.0, -90.0]
+    #트레이 하단 위치(정상 상태인 트레이 놓는 위치)
+    poses.normal_tray_pose: [500.0, 350.0, 350.0, 90.0, 180.0, -90.0]
+    #트레이 하단 위치(정상 상태인 트레이 잡는 위치)
+    poses.tray_pick_pose: [400.0, 0.0, 180.0, 90.0, 180.0, -90.0]
 
-    poses.tube_0_approach_pose: [300.0, -150.0, 300.0, 0.0, 180.0, 0.0]
-    poses.tube_0_pick_pose: [300.0, -150.0, 160.0, 0.0, 180.0, 0.0]
-    poses.tube_0_refill_pose: [300.0, -150.0, 220.0, 0.0, 180.0, 0.0]
+    #트레이 픽업 기기 상단 위치
+    poses.pick_tool_pose : [300.0, 350.0, 350.0, 90.0, 180.0, -90.0]
+    #트레이 픽업 기기 하단 위치
+    poses.pick_tool_down_pose : [300.0, 350.0, 350.0, 90.0, 180.0, -90.0]
 
-    poses.tube_1_approach_pose: [400.0, 0.0, 300.0, 0.0, 180.0, 0.0]
-    poses.tube_1_pick_pose: [400.0, 0.0, 160.0, 0.0, 180.0, 0.0]
-    poses.tube_1_refill_pose: [400.0, 0.0, 220.0, 0.0, 180.0, 0.0]
+    #refill용 튜브 위치
+    poses.refill_pose: [300.0, 300.0, 350.0, 90.0, 180.0, -90.0]
 
-    poses.tube_2_approach_pose: [500.0, 150.0, 300.0, 0.0, 180.0, 0.0]
-    poses.tube_2_pick_pose: [500.0, 150.0, 160.0, 0.0, 180.0, 0.0]
-    poses.tube_2_refill_pose: [500.0, 150.0, 220.0, 0.0, 180.0, 0.0]
+    #tube 상단 위치
+    poses.tube_0_approach_pose: [400.0, 0.0, 300.0, 90.0, 180.0, -90.0]
+    #tube 하단 위치
+    poses.tube_0_pick_pose: [400.0, 0.0, 160.0, 90.0, 180.0, -90.0]
+    #tube refill 위치(공중에서 기울이는 위치)
+    poses.tube_0_refill_pose: [400.0, 0.0, 220.0, 90.0, 180.0, -90.0]
 
-gripper_control_node:
-  ros__parameters:
-    move_duration_sec: 0.3
+    poses.tube_1_approach_pose: [350.0, 0.0, 300.0, 90.0, 180.0, -90.0]
+    poses.tube_1_pick_pose: [350.0, 0.0, 160.0, 90.0, 180.0, -90.0]
+    poses.tube_1_refill_pose: [350.0, 0.0, 220.0, 90.0, 180.0, -90.0]
+
+    poses.tube_2_approach_pose: [450.0, 0.0, 300.0, 90.0, 180.0, -90.0]
+    poses.tube_2_pick_pose: [450.0, 0.0, 160.0, 90.0, 180.0, -90.0]
+    poses.tube_2_refill_pose: [450.0, 0.0, 220.0, 90.0, 180.0, -90.0]
 
 robot_task_manager_node:
   ros__parameters:
@@ -55,4 +75,5 @@ robot_task_manager_node:
 main_decision_node:
   ros__parameters:
     num_tubes: 3
-    decision_cooldown_sec: 1.0
+    #20260624 준형, decision_cooldown_sec 사용하지 않음으로 주석처리
+    # decision_cooldown_sec: 1.0
