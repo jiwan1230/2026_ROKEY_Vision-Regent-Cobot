@@ -18,13 +18,15 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from interfaces.msg import RobotStatus, TubeState
-from interfaces.srv import GripperControl, MoveToPose, RequestRecheck, StartTask, StopTask
+from interfaces.srv import GripperControl, MoveToPose, RequestRecheck, StartTask, StopTask, CurrentTubeState
 from robot_control_pkg.poses import (
     HOME_POSE,
     NORMAL_TRAY_APPROACH_POSE,
     NORMAL_TRAY_POSE,
     TRAY_PICK_POSE,
     WASTE_POSE,
+    WASTE_DOWN_POSE,
+    REFILL_POSE,
     tube_approach_pose,
     tube_pick_pose,
     tube_refill_pose,
@@ -45,11 +47,12 @@ class RobotTaskManagerNode(Node):
 
         self.declare_parameter("grip_retry_count", 1)
         self.declare_parameter("recheck_timeout_sec", 5.0)
-        self.declare_parameter("service_call_timeout_sec", 10.0)
-
-        self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
-        self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
-        self.service_call_timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
+        self.declare_parameter("service_call_timeout_sec", 20.0)
+        #20260624 준형, grip_retry_count, recheck_timeout_sec, service_call_timeout_sec를 사용할 때 get_parameter()로 가져오도록 수정
+        # self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
+        # self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
+        # self.service_call_timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
+        #end
 
         self.stop_event = threading.Event()
         cb_group = ReentrantCallbackGroup()
@@ -65,7 +68,11 @@ class RobotTaskManagerNode(Node):
         self.recheck_client = self.create_client(
             RequestRecheck, "/vision/request_recheck", callback_group=cb_group
         )
-
+        #20260624 준형, CurrentTubeState 서비스 추가
+        self.current_tube_state_client = self.create_client(
+            CurrentTubeState, '/robot/current_tube_state', callback_group=cb_group
+        )
+        #end
         self.create_service(
             StartTask, "/robot/start_task", self.handle_start_task, callback_group=cb_group
         )
@@ -86,25 +93,37 @@ class RobotTaskManagerNode(Node):
         msg.detail = detail
         self.status_pub.publish(msg)
 
+    #20260624 준형, rclpy.spin_until_future_complete()형식으로 변환
     def _call_sync(self, client, request, timeout_sec=None):
-        timeout_sec = timeout_sec or self.service_call_timeout_sec
-        if not client.wait_for_service(timeout_sec=2.0):
-            raise TaskFailed(f"Service {client.srv_name} unavailable")
+        if timeout_sec is None:
+            timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
+
+        if not client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error(f"Service {client.srv_name} not available")
+            return None
+
         future = client.call_async(request)
-        start = time.monotonic()
-        while not future.done():
-            if time.monotonic() - start > timeout_sec:
-                raise TaskFailed(f"Service {client.srv_name} timed out")
-            time.sleep(0.01)
-        return future.result()
+
+        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
+
+        if future.done():
+            try:
+                return future.result()
+            except Exception as e:
+                self.get_logger().error(f"Service call failed: {e}")
+                return None
+        else:
+            self.get_logger().warn(f"Service {client.srv_name} timed out")
+            return None
+    #end
 
     def _check_stop(self):
         if self.stop_event.is_set():
             raise TaskAborted()
 
-    def move(self, pose_name):
+    def move(self, pose_name, move_type):
         self._check_stop()
-        result = self._call_sync(self.move_client, MoveToPose.Request(pose_name=pose_name))
+        result = self._call_sync(self.move_client, MoveToPose.Request(pose_name=pose_name, move_type=move_type))
         if not result.success:
             raise TaskFailed(result.message)
 
@@ -113,6 +132,7 @@ class RobotTaskManagerNode(Node):
         return result.success
 
     def grip_with_retry(self, command):
+        self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
         for attempt in range(self.grip_retry_count + 1):
             self._check_stop()
             if self.grip(command):
@@ -121,6 +141,7 @@ class RobotTaskManagerNode(Node):
         return False
 
     def request_recheck(self):
+        self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
         try:
             result = self._call_sync(
                 self.recheck_client, RequestRecheck.Request(request=True), self.recheck_timeout_sec
@@ -133,34 +154,56 @@ class RobotTaskManagerNode(Node):
 
     def dispose_tube(self, idx):
         self.publish_status(RobotStatus.STATUS_MOVING, "dispose", f"approach tube {idx}")
-        self.move(tube_approach_pose(idx))
-        self.move(tube_pick_pose(idx))
+        self.move(tube_approach_pose(idx), 'move')
+        self.move(tube_pick_pose(idx), 'down')
 
         self.publish_status(RobotStatus.STATUS_PICKING, "dispose", f"grip tube {idx}")
         if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
             raise TaskFailed(f"Gripper failed to close on tube {idx}")
 
-        self.move(tube_approach_pose(idx))
+        self.move(tube_approach_pose(idx), 'move')
         self.publish_status(RobotStatus.STATUS_DISPOSING, "dispose", f"move tube {idx} to waste zone")
-        self.move(WASTE_POSE)
+        self.move(WASTE_POSE, 'move')
+        self.move(WASTE_DOWN_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
-        self.move(HOME_POSE)
+        self.move(HOME_POSE, 'move')
 
     def refill_tube(self, idx):
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
-        self.move(tube_approach_pose(idx))
+        try:
+            result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
+        except TaskFailed as e:
+            self.get_logger().error(f"Test task failed for tube {idx}: {e}")
+            return
 
+        #fefill 튜브 위치로 이동
+        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach refill zone")
+        self.move(REFILL_POSE, 'move')
+        self.move(REFILL_POSE, 'down')
+        self.grip(GripperControl.Request.COMMAND_CLOSE)
+        self.move(REFILL_POSE, 'move')
+
+        #채울 튜브 위치로 이동
+        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
+        self.move(tube_approach_pose(idx), 'move')
+
+        #채우기(기울이기)
         self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
-        self.move(tube_refill_pose(idx))
+        self.move(tube_refill_pose(idx), 'rotate', result.current_ratio)
         self._check_stop()
         time.sleep(0.3)  # simulated dispense duration for the configured fill amount
 
-        self.move(tube_approach_pose(idx))
-        self.move(HOME_POSE)
+        self.move(tube_approach_pose(idx), 'move')
+        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach refill zone")
+        self.move(REFILL_POSE, 'move')
+        self.move(REFILL_POSE, 'down')
+        self.grip(GripperControl.Request.COMMAND_OPEN)
+        self.move(REFILL_POSE, 'move')
+
+        self.move(HOME_POSE, 'move')
 
     def transfer_tray(self):
         self.publish_status(RobotStatus.STATUS_MOVING, "transfer_normal", "approach tray")
-        self.move(TRAY_PICK_POSE)
+        self.move(TRAY_PICK_POSE, 'move')
 
         self.publish_status(RobotStatus.STATUS_PICKING, "transfer_normal", "grip tray")
         if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
@@ -169,10 +212,10 @@ class RobotTaskManagerNode(Node):
         self.publish_status(
             RobotStatus.STATUS_TRANSFER_NORMAL, "transfer_normal", "move tray to normal zone"
         )
-        self.move(NORMAL_TRAY_APPROACH_POSE)
-        self.move(NORMAL_TRAY_POSE)
+        self.move(NORMAL_TRAY_APPROACH_POSE, 'down_tray')
+        self.move(NORMAL_TRAY_POSE, 'move')
         self.grip(GripperControl.Request.COMMAND_OPEN)
-        self.move(HOME_POSE)
+        self.move(HOME_POSE, 'move')
 
     # ---- service handlers ---------------------------------------------------
 
@@ -233,7 +276,7 @@ class RobotTaskManagerNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = RobotTaskManagerNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = MultiThreadedExecutor(num_threads=5)
     executor.add_node(node)
     try:
         executor.spin()
