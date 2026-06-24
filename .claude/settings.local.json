@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(printenv ROS_DISTRO)",
+      "Read(//opt/ros/**)",
+      "Bash(pip3 show *)",
+      "Bash(python3 -c \"import numpy; print\\('numpy', numpy.__version__\\)\")",
+      "Bash(python3 -c \"import matplotlib; print\\('matplotlib', matplotlib.__version__\\)\")",
+      "Bash(dpkg -l)",
+      "Bash(pip3 list *)",
+      "Read(//tmp/**)",
+      "Bash(python3 -c \"from PIL import Image, ImageTk; print\\('PIL ok'\\)\")",
+      "Bash(python3 -c \"from PIL import ImageGrab; print\\('ImageGrab available'\\)\")",
+      "Bash(DISPLAY=:0 python3 -c ' *)",
+      "Bash(pkill -f \"ros2 launch\")",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(ssh *)"
+    ]
+  }
+}

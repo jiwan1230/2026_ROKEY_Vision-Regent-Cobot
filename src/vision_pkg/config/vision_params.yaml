@@ -21,7 +21,7 @@ side_camera_node:
 
 liquid_height_detector_node:
   ros__parameters:
-    device: "cpu"
+    device: "0" # GPU면 "0", CPU면 "cpu"
     confidence_threshold: 0.4
     num_tubes: 3
     # Physical full height of a tube in mm, used to convert the
