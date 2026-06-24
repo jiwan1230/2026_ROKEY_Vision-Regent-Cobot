@@ -13,6 +13,9 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 from vision_pkg.ros_image_utils import bgr8_to_image
+# 260624 jiwan import 추가
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+# end
 
 
 class SideCameraNode(Node):
@@ -24,16 +27,30 @@ class SideCameraNode(Node):
         self.declare_parameter("video_path", "")
         self.declare_parameter("image_dir", "")
         self.declare_parameter("image_loop", True)
-        self.declare_parameter("publish_rate_hz", 5.0)
-        self.declare_parameter("frame_width", 1280)
-        self.declare_parameter("frame_height", 720)
+        # 260624 jiwan default 값 수정
+        self.declare_parameter("publish_rate_hz", 7.0)
+        self.declare_parameter("frame_width", 640)
+        self.declare_parameter("frame_height", 480)
+        # end
 
         self.source_mode = self.get_parameter("source_mode").value
         self.image_loop = self.get_parameter("image_loop").value
         publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
 
-        self.publisher = self.create_publisher(Image, "/vision/side_image", 10)
+        # 260624_jiwan input_image_size 조절(.yaml 파일에 파라미터 추가 및 불러오기)
+        self.frame_width = int(self.get_parameter("frame_width").value)
+        self.frame_height = int(self.get_parameter("frame_height").value)   
 
+        # self.publisher = self.create_publisher(Image, "/vision/side_image", 10)
+        image_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
+
+        self.publisher = self.create_publisher(Image, "/vision/side_image", image_qos)
+        # end
+        
         self.cap = None
         self.image_files = []
         self.image_file_idx = 0
@@ -41,8 +58,14 @@ class SideCameraNode(Node):
         if self.source_mode == "device":
             camera_index = int(self.get_parameter("camera_index").value)
             self.cap = cv2.VideoCapture(camera_index)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.get_parameter("frame_width").value))
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter("frame_height").value))
+            # 260624_jiwan parameter 호출 방식 수정
+            # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.get_parameter("frame_width").value))
+            # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.get_parameter("frame_height").value))
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            self.cap.set(cv2.CAP_PROP_FPS, publish_rate_hz)
+            # end
+
             if not self.cap.isOpened():
                 self.get_logger().error(f"Failed to open camera device index {camera_index}")
         elif self.source_mode == "video_file":
@@ -96,6 +119,16 @@ class SideCameraNode(Node):
 
         if frame is None:
             return
+        
+        # 260624_jiwan publish 직전 이미지 resize
+        # 카메라가 cap.set 해상도를 무시해도 최종 발행 이미지는 강제로 통일
+        if self.frame_width > 0 and self.frame_height > 0:
+            frame = cv2.resize(
+                frame,
+                (self.frame_width, self.frame_height),
+                interpolation=cv2.INTER_AREA
+            )
+        # end
 
         msg = bgr8_to_image(frame)
         msg.header.stamp = self.get_clock().now().to_msg()

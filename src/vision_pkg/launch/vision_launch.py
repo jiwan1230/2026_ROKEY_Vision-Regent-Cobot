@@ -26,7 +26,7 @@ def generate_launch_description():
     model_path_arg = DeclareLaunchArgument("model_path", default_value=default_model_path)
     image_dir_arg = DeclareLaunchArgument("image_dir", default_value=default_image_dir)
     source_mode_arg = DeclareLaunchArgument("source_mode", default_value="image_dir")
-    camera_index_arg = DeclareLaunchArgument("camera_index", default_value="0")
+    camera_index_arg = DeclareLaunchArgument("camera_index", default_value="4")
 
     return LaunchDescription(
         [

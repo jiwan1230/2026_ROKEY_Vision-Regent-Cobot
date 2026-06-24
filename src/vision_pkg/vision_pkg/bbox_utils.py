@@ -25,26 +25,43 @@ class Box:
     def height(self):
         return self.y2 - self.y1
 
+# 260624 jiwan
+# def assign_tube_zones(cup_boxes, num_tubes, frame_width):
+#     """Bucket cup boxes into `num_tubes` equal-width left-to-right zones.
 
-def assign_tube_zones(cup_boxes, num_tubes, frame_width):
-    """Bucket cup boxes into `num_tubes` equal-width left-to-right zones.
+#     Returns a list of length num_tubes, each entry either a Box or None
+#     (zone has no detected cup). Keeps tube indices stable (index 0 = left)
+#     even if a tube briefly fails to detect, instead of relying on rank order.
+#     """
+#     zone_width = frame_width / num_tubes
+#     slots = [None] * num_tubes
 
-    Returns a list of length num_tubes, each entry either a Box or None
-    (zone has no detected cup). Keeps tube indices stable (index 0 = left)
-    even if a tube briefly fails to detect, instead of relying on rank order.
+#     for box in cup_boxes:
+#         zone = int(box.cx // zone_width)
+#         zone = max(0, min(num_tubes - 1, zone))
+#         current = slots[zone]
+#         if current is None or box.conf > current.conf:
+#             slots[zone] = box
+
+#     return slots
+
+def assign_tube_order(cup_boxes, num_tubes):
     """
-    zone_width = frame_width / num_tubes
-    slots = [None] * num_tubes
+    Assign cup boxes to tube indices by left-to-right order.
 
-    for box in cup_boxes:
-        zone = int(box.cx // zone_width)
-        zone = max(0, min(num_tubes - 1, zone))
-        current = slots[zone]
-        if current is None or box.conf > current.conf:
-            slots[zone] = box
+    If more than num_tubes cups are detected, keep the most confident
+    num_tubes boxes first, then sort them from left to right.
+    """
+    candidates = sorted(cup_boxes, key=lambda b: b.conf, reverse=True)[:num_tubes]
+    sorted_boxes = sorted(candidates, key=lambda b: b.cx)
+
+    slots = [None] * num_tubes
+    for idx, box in enumerate(sorted_boxes):
+        slots[idx] = box
 
     return slots
 
+# end
 
 def match_height_box(cup_box, height_boxes):
     """Pick the height box whose center x falls within the cup box and that

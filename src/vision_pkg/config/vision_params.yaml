@@ -1,39 +1,50 @@
-# model_path (liquid_height_detector_node) and image_dir (side_camera_node)
-# are intentionally NOT set here - vision_launch.py fills them in with
-# defaults that point at the weights/ and sample_images/ bundled inside this
-# package, so a fresh clone works with zero configuration. Override them with
-# launch arguments (model_path:=..., image_dir:=..., source_mode:=device,
-# camera_index:=...) to use your own camera/model instead.
-
 side_camera_node:
   ros__parameters:
-    # source_mode: "device" (USB/webcam via cv2.VideoCapture index),
-    #              "video_file" (loop a recorded video),
-    #              "image_dir" (cycle through a directory of test images -
-    #                           used for development without physical hardware)
     source_mode: "image_dir"
     camera_index: 0
     video_path: ""
     image_loop: true
-    publish_rate_hz: 2.0
-    frame_width: 1280
-    frame_height: 720
+
+    # 성능 제한용
+    publish_rate_hz: 7.0
+    frame_width: 640
+    frame_height: 480
 
 liquid_height_detector_node:
   ros__parameters:
-    device: "0" # GPU면 "0", CPU면 "cpu"
-    confidence_threshold: 0.4
+    device: "0" #"cpu"
+    confidence_threshold: 0.35
+
+    # YOLO 추론 옵션
+    yolo_imgsz: 640
+    yolo_iou_threshold: 0.5
+    yolo_max_det: 20
+
+    # tube 개수
     num_tubes: 3
-    # Physical full height of a tube in mm, used to convert the
-    # cup-vs-liquid bounding box ratio into a calibrated liquid height.
-    tube_height_mm: 100.0
+
+    # 기존 mm 변환 대신 percent 사용
+    output_unit: "percent"
+
+    # height 결과 안정화
+    height_buffer_size: 5
+    height_publish_min_samples: 3
+    height_filter_method: "median"
+
+    # hand safety 안정화
     hand_safety_enabled: true
+    hand_detect_consecutive_frames: 3
+    hand_lost_consecutive_frames: 2
+
     camera_timeout_sec: 3.0
 
 tube_state_publisher_node:
   ros__parameters:
-    target_height: 60.0
+    # 이제 liquid_height를 percent로 해석
+    target_height: 50.0
     tolerance: 10.0
-    refill_min: 20.0
-    overflow_max: 95.0
-    confidence_threshold: 0.4
+    # 260624 jiwan
+    # refill_min: 30.0
+    # overflow_max: 70.0
+    # end
+    confidence_threshold: 0.35

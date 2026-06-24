@@ -15,7 +15,16 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Bool
 
 from interfaces.msg import TubeHeight
-from vision_pkg.bbox_utils import Box, assign_tube_zones, liquid_fill_fraction, match_height_box
+# 260624 jiwan bbox_utils.py 수정에 따른 import 문 수정 + 신뢰도를 위한 buffer를 위한 deque 추가
+# from vision_pkg.bbox_utils import Box, assign_tube_zones, liquid_fill_fraction, match_height_box
+from collections import deque
+import statistics
+from vision_pkg.bbox_utils import Box, assign_tube_order, liquid_fill_fraction, match_height_box
+
+# QoS 맞추기 위한 설정
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+# end
+
 from vision_pkg.ros_image_utils import image_to_bgr8
 
 
@@ -27,13 +36,50 @@ class LiquidHeightDetectorNode(Node):
         self.declare_parameter("device", "cpu")
         self.declare_parameter("confidence_threshold", 0.4)
         self.declare_parameter("num_tubes", 3)
-        self.declare_parameter("tube_height_mm", 100.0)
+
+        # 260624 jiwan 더이상 사용하지 않는 파라미터
+        # self.declare_parameter("tube_height_mm", 100.0)
+        # end
+
         self.declare_parameter("hand_safety_enabled", True)
         self.declare_parameter("camera_timeout_sec", 3.0)
 
+        # 260624 파라미터 추가
+        self.declare_parameter("yolo_imgsz", 640)
+        self.declare_parameter("yolo_iou_threshold", 0.5)
+        self.declare_parameter("yolo_max_det", 20)
+
+        self.declare_parameter("height_buffer_size", 5)
+        self.declare_parameter("height_publish_min_samples", 3)
+        self.declare_parameter("height_filter_method", "median")
+
+        self.declare_parameter("hand_detect_consecutive_frames", 3)
+        self.declare_parameter("hand_lost_consecutive_frames", 2)
+
+
+        self.yolo_imgsz = int(self.get_parameter("yolo_imgsz").value)
+        self.yolo_iou_threshold = float(self.get_parameter("yolo_iou_threshold").value)
+        self.yolo_max_det = int(self.get_parameter("yolo_max_det").value)
+
+        self.height_buffer_size = int(self.get_parameter("height_buffer_size").value)
+        self.height_publish_min_samples = int(self.get_parameter("height_publish_min_samples").value)
+        self.height_filter_method = self.get_parameter("height_filter_method").value
+
+        self.hand_detect_consecutive_frames = int(
+            self.get_parameter("hand_detect_consecutive_frames").value
+        )
+        self.hand_lost_consecutive_frames = int(
+            self.get_parameter("hand_lost_consecutive_frames").value
+        )
+        # end
+
         self.conf_threshold = float(self.get_parameter("confidence_threshold").value)
         self.num_tubes = int(self.get_parameter("num_tubes").value)
-        self.tube_height_mm = float(self.get_parameter("tube_height_mm").value)
+
+        # 260624 jiwan
+        # self.tube_height_mm = float(self.get_parameter("tube_height_mm").value)
+        # end
+
         self.hand_safety_enabled = bool(self.get_parameter("hand_safety_enabled").value)
         self.camera_timeout_sec = float(self.get_parameter("camera_timeout_sec").value)
         self.device = self.get_parameter("device").value
@@ -49,12 +95,43 @@ class LiquidHeightDetectorNode(Node):
         self.class_names = self.model.names  # e.g. {0: 'cup', 1: 'height', 2: 'hand'}
 
         self.last_image_time = None
+        
+        # 260624 jiwan buffer 초기화
+        self.height_buffers = [
+            deque(maxlen=self.height_buffer_size)
+            for _ in range(self.num_tubes)
+        ]
+
+        self.conf_buffers = [
+            deque(maxlen=self.height_buffer_size)
+            for _ in range(self.num_tubes)
+        ]
+
+        self.hand_detect_count = 0
+        self.hand_lost_count = 0
+        self.hand_detected_state = False
+        self.inference_count = 0 # 디버깅용 추론 시간 확인용
+        # end
 
         self.tube_height_pub = self.create_publisher(TubeHeight, "/vision/tube_height", 10)
         self.hand_detected_pub = self.create_publisher(Bool, "/vision/hand_detected", 10)
         self.camera_status_pub = self.create_publisher(Bool, "/vision/camera_status", 10)
+        # 260624 jiwan QoS를 우리 입맛대로 수정
+        # self.create_subscription(Image, "/vision/side_image", self.on_image, 10)
+        image_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
 
-        self.create_subscription(Image, "/vision/side_image", self.on_image, 10)
+        self.create_subscription(
+            Image,
+            "/vision/side_image",
+            self.on_image,
+            image_qos
+        )
+        # end
+
         self.create_timer(0.5, self.check_camera_timeout)
 
         self.get_logger().info("liquid_height_detector_node ready")
@@ -76,9 +153,21 @@ class LiquidHeightDetectorNode(Node):
         frame = image_to_bgr8(msg)
         frame_height, frame_width = frame.shape[:2]
 
+        # 260624 jiwan results 포함 내용 수정
+        # results = self.model.predict(
+        #     frame, conf=self.conf_threshold, device=self.device, verbose=False
+        # )
         results = self.model.predict(
-            frame, conf=self.conf_threshold, device=self.device, verbose=False
+            frame,
+            conf=self.conf_threshold,
+            iou=self.yolo_iou_threshold,
+            imgsz=self.yolo_imgsz,
+            max_det=self.yolo_max_det,
+            device=self.device,
+            verbose=False
         )
+        # end
+
         result = results[0]
 
         cup_boxes, height_boxes, hand_boxes = [], [], []
@@ -94,11 +183,33 @@ class LiquidHeightDetectorNode(Node):
                 height_boxes.append(b)
             elif cls_name == "hand":
                 hand_boxes.append(b)
+        # 260624 jiwan hand_detected 수정
+        # if self.hand_safety_enabled:
+        #     self.hand_detected_pub.publish(Bool(data=len(hand_boxes) > 0))
+        hand_seen_now = len(hand_boxes) > 0
 
         if self.hand_safety_enabled:
-            self.hand_detected_pub.publish(Bool(data=len(hand_boxes) > 0))
+            if hand_seen_now:
+                self.hand_detect_count += 1
+                self.hand_lost_count = 0
+            else:
+                self.hand_lost_count += 1
+                self.hand_detect_count = 0
 
-        tube_slots = assign_tube_zones(cup_boxes, self.num_tubes, frame_width)
+            if self.hand_detect_count >= self.hand_detect_consecutive_frames:
+                self.hand_detected_state = True
+
+            if self.hand_lost_count >= self.hand_lost_consecutive_frames:
+                self.hand_detected_state = False
+
+            self.hand_detected_pub.publish(Bool(data=self.hand_detected_state))
+
+        # end
+            
+        # 260624 jiwan tube zone 함수 말고 
+        # tube_slots = assign_tube_zones(cup_boxes, self.num_tubes, frame_width)
+        tube_slots = assign_tube_order(cup_boxes, self.num_tubes)
+        # end
 
         tube_index, liquid_height, confidence = [], [], []
         for idx, cup_box in enumerate(tube_slots):
@@ -113,11 +224,35 @@ class LiquidHeightDetectorNode(Node):
                 liquid_height.append(0.0)
                 confidence.append(0.0)
                 continue
-
+            
+            # 260624 jiwan height 계산 방식 수정 mm -> persent %
+            # fraction = liquid_fill_fraction(cup_box, height_box)
+            # tube_conf = min(cup_box.conf, height_box.conf)
+            # liquid_height.append(fraction * self.tube_height_mm)
+            # confidence.append(tube_conf)
             fraction = liquid_fill_fraction(cup_box, height_box)
+            percent = fraction * 100.0
             tube_conf = min(cup_box.conf, height_box.conf)
-            liquid_height.append(fraction * self.tube_height_mm)
-            confidence.append(tube_conf)
+
+            self.height_buffers[idx].append(percent)
+            self.conf_buffers[idx].append(tube_conf)
+
+            if len(self.height_buffers[idx]) >= self.height_publish_min_samples:
+                if self.height_filter_method == "mean":
+                    filtered_height = sum(self.height_buffers[idx]) / len(self.height_buffers[idx])
+                    filtered_conf = sum(self.conf_buffers[idx]) / len(self.conf_buffers[idx])
+                else:
+                    filtered_height = statistics.median(self.height_buffers[idx])
+                    filtered_conf = statistics.median(self.conf_buffers[idx])
+            else:
+                filtered_height = percent
+                filtered_conf = tube_conf
+
+            liquid_height.append(float(filtered_height))
+            confidence.append(float(filtered_conf)) 
+
+            # end
+
 
         msg_out = TubeHeight()
         msg_out.header.stamp = self.get_clock().now().to_msg()
