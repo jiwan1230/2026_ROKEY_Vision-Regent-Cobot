@@ -2,7 +2,7 @@
 
 Captures frames from a USB/web camera (or, for development without
 physical hardware, loops a video file or a directory of still images)
-and publishes them as sensor_msgs/Image on /vision/side_image.
+and publishes them as sensor_msgs/CompressedImage (JPEG) on /vision/side_image.
 """
 import glob
 import os
@@ -10,9 +10,12 @@ import os
 import cv2
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
 
-from vision_pkg.ros_image_utils import bgr8_to_image
+# 260624 jiwan side_image를 raw Image 대신 JPEG로 압축한 CompressedImage로 전송
+from sensor_msgs.msg import CompressedImage
+from vision_pkg.ros_image_utils import bgr8_to_compressed_image
+# end
+
 # 260624 jiwan import 추가
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 # end
@@ -33,6 +36,11 @@ class SideCameraNode(Node):
         self.declare_parameter("frame_height", 480)
         # end
 
+        # 260624 jiwan JPEG 압축 품질 파라미터 추가
+        self.declare_parameter("jpeg_quality", 90)
+        self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
+        # end
+
         self.source_mode = self.get_parameter("source_mode").value
         self.image_loop = self.get_parameter("image_loop").value
         publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
@@ -48,7 +56,8 @@ class SideCameraNode(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
 
-        self.publisher = self.create_publisher(Image, "/vision/side_image", image_qos)
+        # 260624 jiwan publisher 타입 Image -> CompressedImage
+        self.publisher = self.create_publisher(CompressedImage, "/vision/side_image", image_qos)
         # end
         
         self.cap = None
@@ -130,7 +139,9 @@ class SideCameraNode(Node):
             )
         # end
 
-        msg = bgr8_to_image(frame)
+        # 260624 jiwan msg = bgr8_to_image(frame) -> JPEG로 압축해서 payload 크기 줄임
+        msg = bgr8_to_compressed_image(frame, self.jpeg_quality)
+        # end
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "side_camera"
         self.publisher.publish(msg)

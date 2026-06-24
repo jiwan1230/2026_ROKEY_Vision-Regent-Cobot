@@ -11,7 +11,6 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
 from std_msgs.msg import Bool
 
 from interfaces.msg import TubeHeight
@@ -25,7 +24,12 @@ from vision_pkg.bbox_utils import Box, assign_tube_order, liquid_fill_fraction, 
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 # end
 
-from vision_pkg.ros_image_utils import image_to_bgr8
+# 260624 jiwan side_image가 Image -> CompressedImage(JPEG)로 바뀜에 따른 import 수정
+# from sensor_msgs.msg import Image
+# from vision_pkg.ros_image_utils import image_to_bgr8
+from sensor_msgs.msg import CompressedImage
+from vision_pkg.ros_image_utils import compressed_image_to_bgr8
+# end
 
 
 class LiquidHeightDetectorNode(Node):
@@ -124,8 +128,9 @@ class LiquidHeightDetectorNode(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
 
+        # 260624 jiwan 구독 타입 Image -> CompressedImage
         self.create_subscription(
-            Image,
+            CompressedImage,
             "/vision/side_image",
             self.on_image,
             image_qos
@@ -147,10 +152,12 @@ class LiquidHeightDetectorNode(Node):
                 f"No camera frames for {elapsed:.1f}s (timeout={self.camera_timeout_sec}s)"
             )
 
-    def on_image(self, msg: Image):
+    # 260624 jiwan msg 타입 Image -> CompressedImage, 디코드 함수도 교체
+    def on_image(self, msg: CompressedImage):
         self.last_image_time = time.monotonic()
 
-        frame = image_to_bgr8(msg)
+        frame = compressed_image_to_bgr8(msg)
+        # end
         frame_height, frame_width = frame.shape[:2]
 
         # 260624 jiwan results 포함 내용 수정

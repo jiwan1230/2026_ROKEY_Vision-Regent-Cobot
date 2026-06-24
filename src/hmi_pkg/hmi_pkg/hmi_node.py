@@ -14,11 +14,13 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk
 
+import cv2
 import numpy as np
 import rclpy
 from PIL import Image as PILImage
 from PIL import ImageTk
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
@@ -38,8 +40,10 @@ STATE_COLORS = {
 }
 
 
+# 260624 jiwan side_image가 Image(raw) -> CompressedImage(JPEG)로 바뀜에 따라 디코드 방식 변경
 def decode_bgr8(msg) -> np.ndarray:
-    return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
+    return cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+# end
 
 
 class HmiRosBridge(Node):
@@ -56,9 +60,17 @@ class HmiRosBridge(Node):
         self.camera_ok = True
         self.hand_detected = False
 
-        from sensor_msgs.msg import Image
+        from sensor_msgs.msg import CompressedImage
 
-        self.create_subscription(Image, "/vision/side_image", self._on_image, 10)
+        # 260624 jiwan side_image 구독 타입 Image -> CompressedImage
+        # + publisher(side_camera_node)가 BEST_EFFORT/depth=1이라 QoS 맞춰줘야 함
+        image_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
+        self.create_subscription(CompressedImage, "/vision/side_image", self._on_image, image_qos)
+        # end
         self.create_subscription(TubeState, "/vision/tube_state", self._on_tube_state, 10)
         self.create_subscription(TubeHeight, "/vision/tube_height", self._on_tube_height, 10)
         self.create_subscription(RobotStatus, "/robot/status", self._on_robot_status, 10)

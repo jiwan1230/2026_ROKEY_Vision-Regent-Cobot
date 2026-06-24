@@ -10,6 +10,11 @@ side_camera_node:
     frame_width: 640
     frame_height: 480
 
+    # 260624 jiwan side_image가 raw bgr8(921KB)라 BEST_EFFORT에서 드롭되던 문제 ->
+    # JPEG 압축 전송으로 변경, quality는 0~100 (낮을수록 용량 작고 손실 큼)
+    jpeg_quality: 90
+    # end
+
 liquid_height_detector_node:
   ros__parameters:
     device: "0" #"cpu"
