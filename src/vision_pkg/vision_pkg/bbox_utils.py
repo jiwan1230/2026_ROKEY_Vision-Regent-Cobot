@@ -25,39 +25,35 @@ class Box:
     def height(self):
         return self.y2 - self.y1
 
-# 260624 jiwan
-# def assign_tube_zones(cup_boxes, num_tubes, frame_width):
-#     """Bucket cup boxes into `num_tubes` equal-width left-to-right zones.
+# 260624 jiwan rank 기반 재정렬(assign_tube_order)은 폐기로 컵 개수가 줄면
+# 남은 컵들이 인덱스 0부터 다시 채워져서 tube_index가 밀리는 문제가 있었음.
+# -> 슬롯 anchor(cx, y1) 기준 매칭으로 교체. anchor는 liquid_height_detector_node가
+# 컵 3개가 동시에 보이는 시점에 부트스트랩해서 들고 있고, 여기서는 그 anchor에
+# 가장 가까운 박스를 골라주는 순수 함수만 담당.
+def match_cups_to_anchors(cup_boxes, slot_anchors, slot_x_tolerance_px, row_y_tolerance_px):
+    """Match detected cup boxes to fixed slot anchors [(cx, y1), ...].
 
-#     Returns a list of length num_tubes, each entry either a Box or None
-#     (zone has no detected cup). Keeps tube indices stable (index 0 = left)
-#     even if a tube briefly fails to detect, instead of relying on rank order.
-#     """
-#     zone_width = frame_width / num_tubes
-#     slots = [None] * num_tubes
+    A box only matches a slot if it's within slot_x_tolerance_px (x) AND
+    row_y_tolerance_px (y) of that slot's anchor - the y check is what stops
+    a back-row cup from being mistaken for a tube that's temporarily empty
+    (e.g. mid-dispose) just because its x happens to line up with the anchor.
 
-#     for box in cup_boxes:
-#         zone = int(box.cx // zone_width)
-#         zone = max(0, min(num_tubes - 1, zone))
-#         current = slots[zone]
-#         if current is None or box.conf > current.conf:
-#             slots[zone] = box
-
-#     return slots
-
-def assign_tube_order(cup_boxes, num_tubes):
+    Returns a list of length len(slot_anchors), each entry a Box or None.
     """
-    Assign cup boxes to tube indices by left-to-right order.
-
-    If more than num_tubes cups are detected, keep the most confident
-    num_tubes boxes first, then sort them from left to right.
-    """
-    candidates = sorted(cup_boxes, key=lambda b: b.conf, reverse=True)[:num_tubes]
-    sorted_boxes = sorted(candidates, key=lambda b: b.cx)
-
+    num_tubes = len(slot_anchors)
     slots = [None] * num_tubes
-    for idx, box in enumerate(sorted_boxes):
-        slots[idx] = box
+    best_score = [None] * num_tubes
+
+    for box in cup_boxes:
+        for idx, (anchor_x, anchor_y) in enumerate(slot_anchors):
+            dx = abs(box.cx - anchor_x)
+            dy = abs(box.y1 - anchor_y)
+            if dx > slot_x_tolerance_px or dy > row_y_tolerance_px:
+                continue
+            score = box.conf - dx * 0.01 - dy * 0.01
+            if best_score[idx] is None or score > best_score[idx]:
+                best_score[idx] = score
+                slots[idx] = box
 
     return slots
 

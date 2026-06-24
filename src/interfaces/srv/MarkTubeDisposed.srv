@@ -1,0 +1,10 @@
+# Robot notifies vision that this tube was physically disposed (cup lifted
+# out of frame and emptied at the waste zone). Vision alone can't tell a
+# disposed tube apart from a detection failure / occlusion / back-row cup,
+# so tube_state_publisher_node trusts this signal and overrides that slot's
+# state to STATE_NORMAL until the next tray reset.
+
+int32 tube_index
+---
+bool success
+string message

@@ -18,7 +18,15 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from interfaces.msg import RobotStatus, TubeState
-from interfaces.srv import GripperControl, MoveToPose, RequestRecheck, StartTask, StopTask, CurrentTubeState
+from interfaces.srv import (
+    GripperControl,
+    MoveToPose,
+    RequestRecheck,
+    StartTask,
+    StopTask,
+    CurrentTubeState,
+    MarkTubeDisposed,
+)
 from robot_control_pkg.poses import (
     HOME_POSE,
     NORMAL_TRAY_APPROACH_POSE,
@@ -47,7 +55,10 @@ class RobotTaskManagerNode(Node):
 
         self.declare_parameter("grip_retry_count", 1)
         self.declare_parameter("recheck_timeout_sec", 5.0)
-        self.declare_parameter("service_call_timeout_sec", 20.0)
+        self.declare_parameter("service_call_timeout_sec", 100.0)
+        # 260624 jiwan refill 반복 보충 루프의 안전 상한 (무한루프 방지)
+        self.declare_parameter("max_pour_attempts", 5)
+        # end
         #20260624 준형, grip_retry_count, recheck_timeout_sec, service_call_timeout_sec를 사용할 때 get_parameter()로 가져오도록 수정
         # self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
         # self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
@@ -73,6 +84,12 @@ class RobotTaskManagerNode(Node):
             CurrentTubeState, '/robot/current_tube_state', callback_group=cb_group
         )
         #end
+        # 260624 jiwan vision 단독으로는 "안 보임"이 폐기인지 오검출인지 구분 못 해서,
+        # 폐기 성공 시 로봇이 직접 알려주는 채널 추가
+        self.mark_tube_disposed_client = self.create_client(
+            MarkTubeDisposed, '/vision/mark_tube_disposed', callback_group=cb_group
+        )
+        # end
         self.create_service(
             StartTask, "/robot/start_task", self.handle_start_task, callback_group=cb_group
         )
@@ -121,11 +138,17 @@ class RobotTaskManagerNode(Node):
         if self.stop_event.is_set():
             raise TaskAborted()
 
-    def move(self, pose_name, move_type):
+    # 260624 jiwan current_ratio 파라미터 추가 - 'rotate' move_type에서 MoveToPose로
+    # 안 넘어가고 있던 버그(refill_tube가 3개 인자로 호출해서 TypeError 났었음) 수정
+    def move(self, pose_name, move_type, current_ratio=0.0):
         self._check_stop()
-        result = self._call_sync(self.move_client, MoveToPose.Request(pose_name=pose_name, move_type=move_type))
+        result = self._call_sync(
+            self.move_client,
+            MoveToPose.Request(pose_name=pose_name, move_type=move_type, current_ratio=current_ratio),
+        )
         if not result.success:
             raise TaskFailed(result.message)
+    # end
 
     def grip(self, command):
         result = self._call_sync(self.gripper_client, GripperControl.Request(command=command))
@@ -166,17 +189,25 @@ class RobotTaskManagerNode(Node):
         self.move(WASTE_POSE, 'move')
         self.move(WASTE_DOWN_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
+
+        # 260624 jiwan 폐기 완료를 vision에 알림 (handled_slots override 트리거).
+        # 여러 tube를 한 번에 폐기할 수 있어서 tube마다 즉시 알려줘야 함 - 끝나고
+        # 한 번에 모아서 보내면 안 됨.
+        result = self._call_sync(
+            self.mark_tube_disposed_client, MarkTubeDisposed.Request(tube_index=idx)
+        )
+        if result is None or not result.success:
+            self.get_logger().warn(f"Failed to mark tube {idx} as disposed in vision")
+        # end
+
         self.move(HOME_POSE, 'move')
 
+    # 260624 jiwan 한 번에 계산해서 붓는 방식 -> 조금 붓고 vision 상태 확인해서
+    # 모자르면 더 붓는 반복 루프로 변경. CurrentTubeState 서버가 이제 실제로
+    # 구현되어 있어서(/robot/current_tube_state) 매 iteration 호출 가능.
     def refill_tube(self, idx):
-        try:
-            result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
-        except TaskFailed as e:
-            self.get_logger().error(f"Test task failed for tube {idx}: {e}")
-            return
-
-        #fefill 튜브 위치로 이동
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach refill zone")
+        #refill 튜브 위치로 이동, 시약통 집기
+        self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
         self.move(REFILL_POSE, 'move')
         self.move(REFILL_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_CLOSE)
@@ -186,20 +217,34 @@ class RobotTaskManagerNode(Node):
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
         self.move(tube_approach_pose(idx), 'move')
 
-        #채우기(기울이기)
+        max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
         self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
-        self.move(tube_refill_pose(idx), 'rotate', result.current_ratio)
-        self._check_stop()
-        time.sleep(0.3)  # simulated dispense duration for the configured fill amount
+        for attempt in range(max_pour_attempts):
+            self._check_stop()
+            result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
+            if result is None or not result.success:
+                raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
+            if result.state == TubeState.STATE_NORMAL:
+                break
+            if result.state == TubeState.STATE_DISPOSE_NEEDED:
+                raise TaskFailed(f"Tube {idx} overflowed during refill")
 
+            self.move(tube_refill_pose(idx), 'rotate', result.current_ratio)
+            self._check_stop()
+            time.sleep(0.3)  # simulated dispense duration for one pour increment
+        else:
+            raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
+
+        #시약통 반납
         self.move(tube_approach_pose(idx), 'move')
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach refill zone")
+        self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
         self.move(REFILL_POSE, 'move')
         self.move(REFILL_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
         self.move(REFILL_POSE, 'move')
 
         self.move(HOME_POSE, 'move')
+    # end
 
     def transfer_tray(self):
         self.publish_status(RobotStatus.STATUS_MOVING, "transfer_normal", "approach tray")

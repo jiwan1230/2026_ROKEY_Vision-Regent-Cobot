@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/MoveToPose.srv"
   "srv/GripperControl.srv"
   "srv/CurrentTubeState.srv"
+  "srv/MarkTubeDisposed.srv"
   DEPENDENCIES std_msgs
 )
 

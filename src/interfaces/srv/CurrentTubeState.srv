@@ -1,3 +1,7 @@
 int32 tube_index
 ---
-float32 current_ratio
+bool success
+int32 state            # interfaces/msg/TubeState.STATE_* 값 재사용
+float32 current_ratio  # 0.0~1.0 비율 (TubeHeight의 percent와 다름, doosan rotate 계산용)
+float32 confidence
+string message

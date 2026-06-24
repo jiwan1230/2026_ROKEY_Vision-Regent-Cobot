@@ -31,6 +31,12 @@ liquid_height_detector_node:
     # 기존 mm 변환 대신 percent 사용
     output_unit: "percent"
 
+    # 260624 jiwan 동적 slot anchor 매칭 tolerance (px). cup이 num_tubes개 동시에
+    # 보이는 시점에 anchor를 부트스트랩하고, 이후 매 프레임 이 범위 안에서만 매칭
+    slot_x_tolerance_px: 80.0
+    row_y_tolerance_px: 35.0
+    # end
+
     # height 결과 안정화
     height_buffer_size: 5
     height_publish_min_samples: 3

@@ -71,6 +71,9 @@ robot_task_manager_node:
     num_tubes: 3
     grip_retry_count: 1
     recheck_timeout_sec: 5.0
+    # 260624 jiwan refill 반복 보충 루프 안전 상한 (무한루프 방지)
+    max_pour_attempts: 5
+    # end
 
 main_decision_node:
   ros__parameters:

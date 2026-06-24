@@ -18,10 +18,14 @@ from interfaces.msg import TubeHeight
 # from vision_pkg.bbox_utils import Box, assign_tube_zones, liquid_fill_fraction, match_height_box
 from collections import deque
 import statistics
-from vision_pkg.bbox_utils import Box, assign_tube_order, liquid_fill_fraction, match_height_box
+from vision_pkg.bbox_utils import Box, match_cups_to_anchors, liquid_fill_fraction, match_height_box
 
 # QoS 맞추기 위한 설정
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+# end
+
+# 260624 jiwan slot anchor 수동 리셋용 (새 트레이로 전환 시 호출, 지금은 수동 훅)
+from std_srvs.srv import Trigger
 # end
 
 # 260624 jiwan side_image가 Image -> CompressedImage(JPEG)로 바뀜에 따른 import 수정
@@ -60,6 +64,11 @@ class LiquidHeightDetectorNode(Node):
         self.declare_parameter("hand_detect_consecutive_frames", 3)
         self.declare_parameter("hand_lost_consecutive_frames", 2)
 
+        # 260624 jiwan 동적 slot anchor 매칭용 tolerance (cup이 처음 num_tubes개
+        # 동시에 보였을 때 부트스트랩한 anchor와 비교하는 허용 오차, px 단위)
+        self.declare_parameter("slot_x_tolerance_px", 80.0)
+        self.declare_parameter("row_y_tolerance_px", 35.0)
+        # end
 
         self.yolo_imgsz = int(self.get_parameter("yolo_imgsz").value)
         self.yolo_iou_threshold = float(self.get_parameter("yolo_iou_threshold").value)
@@ -68,6 +77,9 @@ class LiquidHeightDetectorNode(Node):
         self.height_buffer_size = int(self.get_parameter("height_buffer_size").value)
         self.height_publish_min_samples = int(self.get_parameter("height_publish_min_samples").value)
         self.height_filter_method = self.get_parameter("height_filter_method").value
+
+        self.slot_x_tolerance_px = float(self.get_parameter("slot_x_tolerance_px").value)
+        self.row_y_tolerance_px = float(self.get_parameter("row_y_tolerance_px").value)
 
         self.hand_detect_consecutive_frames = int(
             self.get_parameter("hand_detect_consecutive_frames").value
@@ -117,6 +129,13 @@ class LiquidHeightDetectorNode(Node):
         self.inference_count = 0 # 디버깅용 추론 시간 확인용
         # end
 
+        # 260624 jiwan slot anchor: cup이 num_tubes개 동시에 보이는 첫 순간에
+        # 한 번 부트스트랩해서 들고 있음. 폐기로 컵이 줄어도 이 anchor는 안 바뀌어서
+        # 남은 컵들의 tube_index가 안 밀림. 트레이가 바뀌면 reset_slot_anchors_callback으로
+        # None으로 되돌려서 다음 3개가 보일 때 다시 부트스트랩되게 함 (지금은 수동 훅).
+        self.slot_anchors = None
+        # end
+
         self.tube_height_pub = self.create_publisher(TubeHeight, "/vision/tube_height", 10)
         self.hand_detected_pub = self.create_publisher(Bool, "/vision/hand_detected", 10)
         self.camera_status_pub = self.create_publisher(Bool, "/vision/camera_status", 10)
@@ -139,6 +158,11 @@ class LiquidHeightDetectorNode(Node):
 
         self.create_timer(0.5, self.check_camera_timeout)
 
+        # 260624 jiwan 새 트레이로 바뀌었을 때 anchor를 다시 잡게 하는 수동 리셋 훅.
+        # 나중에 "트레이 전체 이동 완료" 신호가 생기면 거기서 이 서비스를 호출하면 됨.
+        self.create_service(Trigger, "/vision/reset_slot_anchors", self.handle_reset_slot_anchors)
+        # end
+
         self.get_logger().info("liquid_height_detector_node ready")
 
     def check_camera_timeout(self):
@@ -151,6 +175,18 @@ class LiquidHeightDetectorNode(Node):
             self.get_logger().warn(
                 f"No camera frames for {elapsed:.1f}s (timeout={self.camera_timeout_sec}s)"
             )
+
+    # 260624 jiwan 새 트레이 전환 시 slot anchor + 버퍼 전부 초기화
+    def handle_reset_slot_anchors(self, request, response):
+        self.slot_anchors = None
+        for idx in range(self.num_tubes):
+            self.height_buffers[idx].clear()
+            self.conf_buffers[idx].clear()
+        response.success = True
+        response.message = "slot_anchors reset; will re-bootstrap on next full sighting"
+        self.get_logger().info(response.message)
+        return response
+    # end
 
     # 260624 jiwan msg 타입 Image -> CompressedImage, 디코드 함수도 교체
     def on_image(self, msg: CompressedImage):
@@ -213,9 +249,24 @@ class LiquidHeightDetectorNode(Node):
 
         # end
             
-        # 260624 jiwan tube zone 함수 말고 
-        # tube_slots = assign_tube_zones(cup_boxes, self.num_tubes, frame_width)
-        tube_slots = assign_tube_order(cup_boxes, self.num_tubes)
+        # 260624 jiwan tube zone/rank 함수 말고 동적 anchor 부트스트랩 + 매칭으로 교체.
+        # cup이 num_tubes개 동시에 보이는 첫 순간에만 anchor를 잡고, 그 뒤로는 폐기로
+        # 컵이 줄어도 anchor를 그대로 유지해서 남은 컵들의 tube_index가 안 밀리게 함.
+        if self.slot_anchors is None:
+            confident_cups = [b for b in cup_boxes if b.conf >= self.conf_threshold]
+            if len(confident_cups) >= self.num_tubes:
+                # 한 프레임에 num_tubes보다 많이 잡히면(노이즈/뒷줄) y2(박스 하단,
+                # 카메라에 가까울수록 큼)가 큰 것부터 앞줄로 보고 num_tubes개만 채택
+                front = sorted(confident_cups, key=lambda b: b.y2, reverse=True)[: self.num_tubes]
+                self.slot_anchors = sorted([(b.cx, b.y1) for b in front], key=lambda a: a[0])
+                self.get_logger().info(f"slot_anchors bootstrapped: {self.slot_anchors}")
+
+        if self.slot_anchors is None:
+            tube_slots = [None] * self.num_tubes
+        else:
+            tube_slots = match_cups_to_anchors(
+                cup_boxes, self.slot_anchors, self.slot_x_tolerance_px, self.row_y_tolerance_px
+            )
         # end
 
         tube_index, liquid_height, confidence = [], [], []
@@ -224,12 +275,17 @@ class LiquidHeightDetectorNode(Node):
             if cup_box is None:
                 liquid_height.append(0.0)
                 confidence.append(0.0)
+                # 260624 jiwan 슬롯에 컵이 없으면 이전/다른 줄 값이 섞여 들어오지 않게 버퍼도 비움
+                self.height_buffers[idx].clear()
+                self.conf_buffers[idx].clear()
                 continue
 
             height_box = match_height_box(cup_box, height_boxes)
             if height_box is None:
                 liquid_height.append(0.0)
                 confidence.append(0.0)
+                self.height_buffers[idx].clear()
+                self.conf_buffers[idx].clear()
                 continue
             
             # 260624 jiwan height 계산 방식 수정 mm -> persent %
