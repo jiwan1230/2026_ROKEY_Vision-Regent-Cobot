@@ -5,7 +5,8 @@
 
 string pose_name
 string move_type #'move', 'down', 'donw_tray', 'rotate'
-float32 current_ratio
+#20260625 준형, 사용하지 않으므로 주석처리
+# float32 current_ratio
 ---
 bool success
 string message
