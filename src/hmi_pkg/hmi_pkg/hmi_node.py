@@ -98,6 +98,10 @@ class IntegratedHMINode(Node):
         self.gripper_closed = False
         self.grip_failed = False
         self.system_running = False
+        # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
+        # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
+        # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
+        self.vision_log_messages = []
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -125,6 +129,7 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, '/gripper/is_closed', self._on_gripper_state, 10)
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
         self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
+        self.create_subscription(String, '/vision/log', self._on_vision_log, 10)
 
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
@@ -156,6 +161,9 @@ class IntegratedHMINode(Node):
     def _on_gripper_state(self, msg): self.gripper_closed = msg.data
     def _on_grip_failed(self, msg): self.grip_failed = msg.data
     def _on_system_running(self, msg): self.system_running = msg.data
+
+    def _on_vision_log(self, msg):
+        self.vision_log_messages.append(msg.data)
 
     def call_set_system_running(self, running: bool):
         return self.set_system_running_client.call_async(SetBool.Request(data=running))
@@ -196,6 +204,7 @@ class HMIDashboardApp(QDialog):
         self.log_signal.connect(self.log)
         self.yolo_enabled = False
         self._grip_fail_shown = False
+        self._vision_log_seen = 0
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
 
@@ -426,6 +435,15 @@ class HMIDashboardApp(QDialog):
             self.btn_clear_fail.setVisible(True)
             self.log("⚠ 그립 실패 감지됨")
 
+    def _update_vision_log(self):
+        messages = self.node.vision_log_messages
+        if self._vision_log_seen >= len(messages):
+            return
+        ts = datetime.now().strftime("%H:%M:%S")
+        for text in messages[self._vision_log_seen:]:
+            self.textEdit_vision_log.append(f"[{ts}] {text}")
+        self._vision_log_seen = len(messages)
+
     # -----------------------------------------------------------------
     # 화면 실시간 폴링 (150ms)
     # -----------------------------------------------------------------
@@ -480,6 +498,7 @@ class HMIDashboardApp(QDialog):
             self.label_tube0_8.setStyleSheet("color: white;")
 
         self._update_grip_fail_banner()
+        self._update_vision_log()
 
 
 def main(args=None):

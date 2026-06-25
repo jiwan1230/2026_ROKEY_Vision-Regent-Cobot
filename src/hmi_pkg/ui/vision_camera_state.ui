@@ -739,6 +739,32 @@
         <attribute name="title">
          <string>Vision Log</string>
         </attribute>
+        <widget class="QGroupBox" name="groupBox_vision_log">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>10</y>
+           <width>1321</width>
+           <height>241</height>
+          </rect>
+         </property>
+         <property name="title">
+          <string/>
+         </property>
+         <widget class="QTextEdit" name="textEdit_vision_log">
+          <property name="geometry">
+           <rect>
+            <x>20</x>
+            <y>40</y>
+            <width>1261</width>
+            <height>191</height>
+           </rect>
+          </property>
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </widget>
        </widget>
       </widget>
      </widget>

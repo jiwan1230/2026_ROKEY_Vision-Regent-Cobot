@@ -60,7 +60,10 @@ class SideCameraNode(Node):
         # 260624 jiwan publisher 타입 Image -> CompressedImage
         self.publisher = self.create_publisher(CompressedImage, "/vision/side_image", image_qos)
         # end
-        
+        # HMI Vision Log 탭용 - 카메라 연결 실패/해상도 변경 등을 사람이 읽을
+        # 문장으로 같이 발행한다. get_logger()는 그대로 둠.
+        self.vision_log_pub = self.create_publisher(String, "/vision/log", 10)
+
         self.cap = None
         self.image_files = []
         self.image_file_idx = 0
@@ -77,12 +80,12 @@ class SideCameraNode(Node):
             # end
 
             if not self.cap.isOpened():
-                self.get_logger().error(f"Failed to open camera device index {camera_index}")
+                self._log_event(f"Failed to open camera device index {camera_index}", level="error")
         elif self.source_mode == "video_file":
             video_path = self.get_parameter("video_path").value
             self.cap = cv2.VideoCapture(video_path)
             if not self.cap.isOpened():
-                self.get_logger().error(f"Failed to open video file {video_path}")
+                self._log_event(f"Failed to open video file {video_path}", level="error")
         elif self.source_mode == "image_dir":
             image_dir = self.get_parameter("image_dir").value
             patterns = ("*.jpg", "*.jpeg", "*.png", "*.bmp")
@@ -91,9 +94,9 @@ class SideCameraNode(Node):
                 files.extend(glob.glob(os.path.join(image_dir, pattern)))
             self.image_files = sorted(files)
             if not self.image_files:
-                self.get_logger().error(f"No images found in image_dir: {image_dir}")
+                self._log_event(f"No images found in image_dir: {image_dir}", level="error")
         else:
-            self.get_logger().error(f"Unknown source_mode: {self.source_mode}")
+            self._log_event(f"Unknown source_mode: {self.source_mode}", level="error")
 
         # HMI 해상도 적용 버튼 - "WxH" 문자열로 들어옴 (예: "1280x720")
         self.create_subscription(String, "/camera/resolution_cmd", self.on_resolution_cmd, 10)
@@ -104,12 +107,16 @@ class SideCameraNode(Node):
             f"side_camera_node started (source_mode={self.source_mode}, rate={publish_rate_hz}Hz)"
         )
 
+    def _log_event(self, message, level="info"):
+        getattr(self.get_logger(), level)(message)
+        self.vision_log_pub.publish(String(data=message))
+
     def on_resolution_cmd(self, msg: String):
         try:
             w_str, h_str = msg.data.lower().split("x")
             width, height = int(w_str), int(h_str)
         except ValueError:
-            self.get_logger().warn(f"Invalid resolution_cmd: {msg.data!r} (expected 'WxH')")
+            self._log_event(f"Invalid resolution_cmd: {msg.data!r} (expected 'WxH')", level="warn")
             return
 
         self.frame_width = width
@@ -117,7 +124,7 @@ class SideCameraNode(Node):
         if self.source_mode == "device" and self.cap is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.get_logger().info(f"Resolution changed to {width}x{height}")
+        self._log_event(f"Resolution changed to {width}x{height}")
 
     def publish_frame(self):
         frame = None
