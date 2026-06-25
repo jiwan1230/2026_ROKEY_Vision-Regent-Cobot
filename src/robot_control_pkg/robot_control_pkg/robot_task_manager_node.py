@@ -120,17 +120,17 @@ class RobotTaskManagerNode(Node):
             return None
 
         future = client.call_async(request)
+        done_event = threading.Event()
+        future.add_done_callback(lambda _f: done_event.set())
 
-        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
-
-        if future.done():
-            try:
-                return future.result()
-            except Exception as e:
-                self.get_logger().error(f"Service call failed: {e}")
-                return None
-        else:
+        if not done_event.wait(timeout_sec):
             self.get_logger().warn(f"Service {client.srv_name} timed out")
+            return None
+
+        try:
+            return future.result()
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
             return None
     #end
 
