@@ -1,0 +1,1491 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1342</width>
+    <height>930</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Vision AI Reagent QC - 통합 HMI</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tab_dashboard">
+      <attribute name="title">
+       <string>📺 운영 대시보드</string>
+      </attribute>
+      <widget class="QLabel" name="videoLabel">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>30</y>
+         <width>661</width>
+         <height>481</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string>background-color:black; color:white; font-size:16px;</string>
+       </property>
+       <property name="text">
+        <string>Camera Feed</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QGroupBox" name="groupBox_2">
+       <property name="geometry">
+        <rect>
+         <x>710</x>
+         <y>190</y>
+         <width>601</width>
+         <height>161</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string>Robot State Panel</string>
+       </property>
+       <widget class="QLabel" name="label_tube0_2">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>40</y>
+          <width>75</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Status:</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_3">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>80</y>
+          <width>75</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>task:</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_4">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>120</y>
+          <width>75</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>detail:</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_9">
+        <property name="geometry">
+         <rect>
+          <x>70</x>
+          <y>120</y>
+          <width>400</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>- - -</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_10">
+        <property name="geometry">
+         <rect>
+          <x>60</x>
+          <y>80</y>
+          <width>400</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>- - -</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_11">
+        <property name="geometry">
+         <rect>
+          <x>70</x>
+          <y>40</y>
+          <width>400</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>- - -</string>
+        </property>
+       </widget>
+      </widget>
+      <widget class="QGroupBox" name="groupBox_3">
+       <property name="geometry">
+        <rect>
+         <x>710</x>
+         <y>360</y>
+         <width>601</width>
+         <height>151</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string>Safety Panel</string>
+       </property>
+       <widget class="QLabel" name="label_tube0_5">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>40</y>
+          <width>75</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>camera:</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_6">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>100</y>
+          <width>141</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>hand in work space:</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_7">
+        <property name="geometry">
+         <rect>
+          <x>80</x>
+          <y>40</y>
+          <width>400</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>- - -</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_tube0_8">
+        <property name="geometry">
+         <rect>
+          <x>160</x>
+          <y>100</y>
+          <width>400</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>- - -</string>
+        </property>
+       </widget>
+      </widget>
+      <widget class="QGroupBox" name="groupBox_alert">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>513</y>
+         <width>1301</width>
+         <height>42</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string/>
+       </property>
+       <widget class="QLabel" name="lbl_grip_fail_alert">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>10</y>
+          <width>1100</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="styleSheet">
+         <string>background-color:#c0392b; color:white; font-weight:bold; font-size:14px; border-radius:4px; padding-left:8px;</string>
+        </property>
+        <property name="text">
+         <string>⚠ GRIP FAILED - 그리퍼가 물체를 잡지 못했습니다</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="btn_clear_fail">
+        <property name="geometry">
+         <rect>
+          <x>1120</x>
+          <y>10</y>
+          <width>171</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="text">
+         <string>확인 (Clear)</string>
+        </property>
+       </widget>
+      </widget>
+      <widget class="QGroupBox" name="groupBox_4">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>560</y>
+         <width>1301</width>
+         <height>110</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string>control panel</string>
+       </property>
+       <widget class="QPushButton" name="pushButton">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>25</y>
+          <width>89</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Start</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_2">
+        <property name="geometry">
+         <rect>
+          <x>110</x>
+          <y>25</y>
+          <width>89</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Stop</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_3">
+        <property name="geometry">
+         <rect>
+          <x>210</x>
+          <y>25</y>
+          <width>89</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Recheck</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="pushButton_4">
+        <property name="geometry">
+         <rect>
+          <x>1080</x>
+          <y>25</y>
+          <width>201</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Emergency Stop</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_resolution">
+        <property name="geometry">
+         <rect>
+          <x>320</x>
+          <y>27</y>
+          <width>65</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>해상도:</string>
+        </property>
+       </widget>
+       <widget class="QComboBox" name="comboBox_resolution">
+        <property name="geometry">
+         <rect>
+          <x>385</x>
+          <y>24</y>
+          <width>120</width>
+          <height>25</height>
+         </rect>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="btn_apply_resolution">
+        <property name="geometry">
+         <rect>
+          <x>515</x>
+          <y>24</y>
+          <width>80</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>적용</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="btn_yolo_toggle">
+        <property name="geometry">
+         <rect>
+          <x>620</x>
+          <y>24</y>
+          <width>150</width>
+          <height>27</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>🎯 YOLO 추론 OFF</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_gripper_force">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>68</y>
+          <width>110</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>그리퍼 강도:</string>
+        </property>
+       </widget>
+       <widget class="QSlider" name="slider_gripper_force">
+        <property name="geometry">
+         <rect>
+          <x>120</x>
+          <y>65</y>
+          <width>300</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>100</number>
+        </property>
+        <property name="value">
+         <number>50</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_gripper_force_val">
+        <property name="geometry">
+         <rect>
+          <x>430</x>
+          <y>68</y>
+          <width>60</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>50 %</string>
+        </property>
+       </widget>
+       <widget class="QPushButton" name="btn_yolo_toggle_2">
+        <property name="geometry">
+         <rect>
+          <x>620</x>
+          <y>70</y>
+          <width>150</width>
+          <height>27</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Slot Anchor 초기화</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </widget>
+      <widget class="QGroupBox" name="groupBox">
+       <property name="geometry">
+        <rect>
+         <x>710</x>
+         <y>20</y>
+         <width>361</width>
+         <height>151</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string>Tube State Panel</string>
+       </property>
+       <layout class="QGridLayout" name="gridLayout">
+        <property name="horizontalSpacing">
+         <number>15</number>
+        </property>
+        <property name="verticalSpacing">
+         <number>10</number>
+        </property>
+        <item row="0" column="0">
+         <widget class="QLabel" name="label_tube0">
+          <property name="text">
+           <string>Tube 0:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="tube0_color_box">
+          <property name="minimumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">background-color: #FBC02D;</string>
+          </property>
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="tube0_status_label">
+          <property name="text">
+           <string>REFILL NEEDED</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="3">
+         <widget class="QLabel" name="tube0_val_label">
+          <property name="text">
+           <string>32.3 mm</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="label_tube1">
+          <property name="text">
+           <string>Tube 1:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLabel" name="tube1_color_box">
+          <property name="minimumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">background-color: #FBC02D;</string>
+          </property>
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="tube1_status_label">
+          <property name="text">
+           <string>REFILL NEEDED</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QLabel" name="tube1_val_label">
+          <property name="text">
+           <string>44.7 mm</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="label_tube2">
+          <property name="text">
+           <string>Tube 2:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLabel" name="tube2_color_box">
+          <property name="minimumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>35</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">background-color: #2E7D32;</string>
+          </property>
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="tube2_status_label">
+          <property name="text">
+           <string>NORMAL</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="3">
+         <widget class="QLabel" name="tube2_val_label">
+          <property name="text">
+           <string>62.7 mm</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QTabWidget" name="vision_log">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>680</y>
+         <width>1321</width>
+         <height>211</height>
+        </rect>
+       </property>
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <widget class="QWidget" name="robo_tcontrol_log">
+        <attribute name="title">
+         <string>Tab 1</string>
+        </attribute>
+        <widget class="QGroupBox" name="groupBox_5">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>10</y>
+           <width>1321</width>
+           <height>241</height>
+          </rect>
+         </property>
+         <property name="title">
+          <string/>
+         </property>
+         <widget class="QTextEdit" name="textEdit">
+          <property name="geometry">
+           <rect>
+            <x>20</x>
+            <y>40</y>
+            <width>1261</width>
+            <height>191</height>
+           </rect>
+          </property>
+         </widget>
+        </widget>
+       </widget>
+       <widget class="QWidget" name="tab_2">
+        <attribute name="title">
+         <string>Tab 2</string>
+        </attribute>
+       </widget>
+      </widget>
+     </widget>
+     <widget class="QWidget" name="tab_config">
+      <attribute name="title">
+       <string>⚙️ 로봇 모션 &amp; 좌표 설정 (YAML)</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>15</number>
+       </property>
+       <property name="leftMargin">
+        <number>20</number>
+       </property>
+       <property name="topMargin">
+        <number>20</number>
+       </property>
+       <property name="rightMargin">
+        <number>20</number>
+       </property>
+       <property name="bottomMargin">
+        <number>20</number>
+       </property>
+       <item>
+        <widget class="QGroupBox" name="groupBox_home">
+         <property name="title">
+          <string>Home Pose</string>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_1">
+          <item>
+           <widget class="QLabel" name="lbl_home_x">
+            <property name="text">
+             <string>x:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_x">
+            <property name="text">
+             <string>400.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_home_y">
+            <property name="text">
+             <string>y:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_y">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_home_z">
+            <property name="text">
+             <string>z:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_z">
+            <property name="text">
+             <string>400.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_home_rx">
+            <property name="text">
+             <string>rx:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_rx">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_home_ry">
+            <property name="text">
+             <string>ry:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_ry">
+            <property name="text">
+             <string>180.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_home_rz">
+            <property name="text">
+             <string>rz:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_home_rz">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBox_waste">
+         <property name="title">
+          <string>Waste Pose</string>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <item>
+           <widget class="QLabel" name="lbl_waste_x">
+            <property name="text">
+             <string>x:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_x">
+            <property name="text">
+             <string>500.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_waste_y">
+            <property name="text">
+             <string>y:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_y">
+            <property name="text">
+             <string>-350.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_waste_z">
+            <property name="text">
+             <string>z:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_z">
+            <property name="text">
+             <string>200.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_waste_rx">
+            <property name="text">
+             <string>rx:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_rx">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_waste_ry">
+            <property name="text">
+             <string>ry:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_ry">
+            <property name="text">
+             <string>180.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_waste_rz">
+            <property name="text">
+             <string>rz:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_waste_rz">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBox_normal">
+         <property name="title">
+          <string>Normal Tray Approach Pose</string>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_3">
+          <item>
+           <widget class="QLabel" name="lbl_normal_x">
+            <property name="text">
+             <string>x:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_x">
+            <property name="text">
+             <string>500.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_normal_y">
+            <property name="text">
+             <string>y:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_y">
+            <property name="text">
+             <string>350.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_normal_z">
+            <property name="text">
+             <string>z:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_z">
+            <property name="text">
+             <string>300.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_normal_rx">
+            <property name="text">
+             <string>rx:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_rx">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_normal_ry">
+            <property name="text">
+             <string>ry:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_ry">
+            <property name="text">
+             <string>180.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_normal_rz">
+            <property name="text">
+             <string>rz:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_normal_rz">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupBox_tube0">
+         <property name="title">
+          <string>Tube 0 Approach Pose</string>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_4">
+          <item>
+           <widget class="QLabel" name="lbl_tube0_x">
+            <property name="text">
+             <string>x:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_x">
+            <property name="text">
+             <string>300.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_tube0_y">
+            <property name="text">
+             <string>y:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_y">
+            <property name="text">
+             <string>-150.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_tube0_z">
+            <property name="text">
+             <string>z:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_z">
+            <property name="text">
+             <string>300.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_tube0_rx">
+            <property name="text">
+             <string>rx:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_rx">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_tube0_ry">
+            <property name="text">
+             <string>ry:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_ry">
+            <property name="text">
+             <string>180.0</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_tube0_rz">
+            <property name="text">
+             <string>rz:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="input_tube0_rz">
+            <property name="text">
+             <string>0.0</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_apply_params">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>50</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string>background-color: #4CAF50; color: white; font-size: 16px; font-weight: bold;</string>
+         </property>
+         <property name="text">
+          <string>💾 파라미터 로봇에 동기화 적용</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tab_admin">
+      <attribute name="title">
+       <string>🔐 시스템 관리자</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_admin">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QStackedWidget" name="stack_admin">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="page_login">
+          <layout class="QVBoxLayout" name="vl_login">
+           <property name="spacing">
+            <number>20</number>
+           </property>
+           <property name="leftMargin">
+            <number>40</number>
+           </property>
+           <property name="topMargin">
+            <number>40</number>
+           </property>
+           <property name="rightMargin">
+            <number>40</number>
+           </property>
+           <property name="bottomMargin">
+            <number>40</number>
+           </property>
+           <item>
+            <spacer name="spacer_login_top">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>80</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_login_title">
+             <property name="styleSheet">
+              <string>font-size: 22px; font-weight: bold; color: #1565C0;</string>
+             </property>
+             <property name="text">
+              <string>시스템 관리자 로그인</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_login_desc">
+             <property name="styleSheet">
+              <string>font-size: 13px; color: #555555;</string>
+             </property>
+             <property name="text">
+              <string>관리자 계정으로 로그인하세요.</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout">
+             <item>
+              <spacer>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="groupBox_login">
+               <property name="maximumSize">
+                <size>
+                 <width>460</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="styleSheet">
+                <string>QGroupBox { border: 1px solid #BDBDBD; border-radius: 8px; margin-top: 12px; padding: 20px; } QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }</string>
+               </property>
+               <property name="title">
+                <string>계정 정보 입력</string>
+               </property>
+               <layout class="QFormLayout" name="formLayout_login">
+                <property name="horizontalSpacing">
+                 <number>16</number>
+                </property>
+                <property name="verticalSpacing">
+                 <number>18</number>
+                </property>
+                <property name="leftMargin">
+                 <number>24</number>
+                </property>
+                <property name="topMargin">
+                 <number>24</number>
+                </property>
+                <property name="rightMargin">
+                 <number>24</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>24</number>
+                </property>
+                <item row="0" column="0">
+                 <widget class="QLabel" name="lbl_id">
+                  <property name="styleSheet">
+                   <string>font-size: 14px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>아이디</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QLineEdit" name="input_admin_id">
+                  <property name="minimumSize">
+                   <size>
+                    <width>220</width>
+                    <height>36</height>
+                   </size>
+                  </property>
+                  <property name="styleSheet">
+                   <string>font-size: 14px; padding: 4px 8px; border: 1px solid #9E9E9E; border-radius: 4px;</string>
+                  </property>
+                  <property name="placeholderText">
+                   <string>아이디를 입력하세요</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="0">
+                 <widget class="QLabel" name="lbl_pw">
+                  <property name="styleSheet">
+                   <string>font-size: 14px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>비밀번호</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="1">
+                 <widget class="QLineEdit" name="input_admin_pw">
+                  <property name="minimumSize">
+                   <size>
+                    <width>220</width>
+                    <height>36</height>
+                   </size>
+                  </property>
+                  <property name="styleSheet">
+                   <string>font-size: 14px; padding: 4px 8px; border: 1px solid #9E9E9E; border-radius: 4px;</string>
+                  </property>
+                  <property name="echoMode">
+                   <enum>QLineEdit::Password</enum>
+                  </property>
+                  <property name="placeholderText">
+                   <string>비밀번호를 입력하세요</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="0" colspan="2">
+                 <widget class="QLabel" name="lbl_admin_login_status">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>24</height>
+                   </size>
+                  </property>
+                  <property name="styleSheet">
+                   <string>font-size: 13px; color: #c0392b; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string/>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="0" colspan="2">
+                 <widget class="QPushButton" name="btn_admin_login">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>42</height>
+                   </size>
+                  </property>
+                  <property name="styleSheet">
+                   <string>background-color: #1565C0; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
+                  </property>
+                  <property name="text">
+                   <string>로그인</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <spacer>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer name="spacer_login_bottom">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>80</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_admin">
+          <layout class="QVBoxLayout" name="vl_admin">
+           <property name="spacing">
+            <number>16</number>
+           </property>
+           <property name="leftMargin">
+            <number>30</number>
+           </property>
+           <property name="topMargin">
+            <number>30</number>
+           </property>
+           <property name="rightMargin">
+            <number>30</number>
+           </property>
+           <property name="bottomMargin">
+            <number>30</number>
+           </property>
+           <item>
+            <layout class="QHBoxLayout" name="hl_admin_header">
+             <item>
+              <widget class="QLabel" name="lbl_admin_welcome">
+               <property name="styleSheet">
+                <string>font-size: 20px; font-weight: bold; color: #1B5E20;</string>
+               </property>
+               <property name="text">
+                <string>사용자 관리 패널 — admin 로그인됨</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="spacer_admin_header">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btn_admin_logout">
+               <property name="minimumSize">
+                <size>
+                 <width>120</width>
+                 <height>36</height>
+                </size>
+               </property>
+               <property name="styleSheet">
+                <string>background-color: #B71C1C; color: white; font-size: 13px; font-weight: bold; border-radius: 5px;</string>
+               </property>
+               <property name="text">
+                <string>로그아웃</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBox_admin_sysinfo">
+             <property name="title">
+              <string>시스템 정보</string>
+             </property>
+             <layout class="QFormLayout" name="formLayout_sysinfo">
+              <property name="horizontalSpacing">
+               <number>20</number>
+              </property>
+              <property name="verticalSpacing">
+               <number>12</number>
+              </property>
+              <property name="leftMargin">
+               <number>20</number>
+              </property>
+              <property name="topMargin">
+               <number>20</number>
+              </property>
+              <property name="rightMargin">
+               <number>20</number>
+              </property>
+              <property name="bottomMargin">
+               <number>20</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="lbl_si_node">
+                <property name="styleSheet">
+                 <string>font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>ROS 노드 이름:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLabel" name="val_si_node">
+                <property name="text">
+                 <string>hmi_node</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="lbl_si_version">
+                <property name="styleSheet">
+                 <string>font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>HMI 버전:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="val_si_version">
+                <property name="text">
+                 <string>v1.0.0 (2026-06-24)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="lbl_si_admin">
+                <property name="styleSheet">
+                 <string>font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>로그인 계정:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QLabel" name="val_si_admin">
+                <property name="text">
+                 <string>admin</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="lbl_si_login_time">
+                <property name="styleSheet">
+                 <string>font-weight: bold;</string>
+                </property>
+                <property name="text">
+                 <string>로그인 시각:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QLabel" name="val_si_login_time">
+                <property name="text">
+                 <string>--:--:--</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer_admin_bottom">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
