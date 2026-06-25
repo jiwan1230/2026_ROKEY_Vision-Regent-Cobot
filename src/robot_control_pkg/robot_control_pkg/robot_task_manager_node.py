@@ -16,7 +16,6 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from interfaces.msg import RobotStatus, TubeState
@@ -83,9 +82,6 @@ class RobotTaskManagerNode(Node):
         cb_group = ReentrantCallbackGroup()
 
         self.status_pub = self.create_publisher(RobotStatus, "/robot/status", 10)
-        # HMI의 "Robot Control Log" 탭용 - 터미널에만 찍히던 동작을 사람이 읽을
-        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
-        self.robot_log_pub = self.create_publisher(String, "/robot/log", 10)
 
         self.move_client = self.create_client(
             MoveToPose, "/robot/move_to_pose", callback_group=cb_group
@@ -131,10 +127,6 @@ class RobotTaskManagerNode(Node):
 
     # ---- low-level helpers -------------------------------------------------
 
-    def _log_event(self, message, level="info"):
-        getattr(self.get_logger(), level)(message)
-        self.robot_log_pub.publish(String(data=message))
-
     def publish_status(self, status, current_task="", detail=""):
         msg = RobotStatus()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -174,12 +166,12 @@ class RobotTaskManagerNode(Node):
         if not self.stop_event.is_set():
             return
         self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume")
-        self._log_event("Task paused - waiting for stop to clear", level="warn")
+        self.get_logger().warn("Task paused - waiting for stop to clear")
         while self.stop_event.is_set():
             if not rclpy.ok():
                 raise TaskAborted()
             time.sleep(0.1)
-        self._log_event("Task resumed", level="warn")
+        self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
     def move(self, pose_name, move_type):
@@ -196,7 +188,7 @@ class RobotTaskManagerNode(Node):
                 raise TaskFailed(result.message)
             if not self.stop_event.is_set():
                 return
-            self._log_event(f"Move to {pose_name} interrupted by stop; will retry once resumed", level="warn")
+            self.get_logger().warn(f"Move to {pose_name} interrupted by stop; will retry once resumed")
     # end
 
     def grip(self, command):
@@ -209,7 +201,7 @@ class RobotTaskManagerNode(Node):
         for attempt in range(self.grip_retry_count + 1):
             if self.grip(command):
                 return True
-            self._log_event(f"Gripper {command} failed, attempt {attempt + 1}", level="warn")
+            self.get_logger().warn(f"Gripper {command} failed, attempt {attempt + 1}")
         return False
 
     def request_recheck(self):
@@ -218,9 +210,9 @@ class RobotTaskManagerNode(Node):
             result = self._call_sync(
                 self.recheck_client, RequestRecheck.Request(request=True), self.recheck_timeout_sec
             )
-            self._log_event(f"Recheck requested: {result.message}")
+            self.get_logger().info(f"Recheck requested: {result.message}")
         except TaskFailed as e:
-            self._log_event(f"Recheck request failed: {e}", level="warn")
+            self.get_logger().warn(f"Recheck request failed: {e}")
 
     # ---- task sequences -----------------------------------------------------
 
@@ -246,7 +238,7 @@ class RobotTaskManagerNode(Node):
             self.mark_tube_disposed_client, MarkTubeDisposed.Request(tube_index=idx)
         )
         if result is None or not result.success:
-            self._log_event(f"Failed to mark tube {idx} as disposed in vision", level="warn")
+            self.get_logger().warn(f"Failed to mark tube {idx} as disposed in vision")
         # end
 
         self.move(HOME_POSE, 'move')
@@ -332,7 +324,7 @@ class RobotTaskManagerNode(Node):
     def _advance_tray(self):
         num_trays = int(self.get_parameter("num_trays").value)
         if self.tray_idx >= num_trays - 1:
-            self._log_event("All trays already transferred; staying on the last tray_idx", level="warn")
+            self.get_logger().warn("All trays already transferred; staying on the last tray_idx")
             return
 
         self.tray_idx += 1
@@ -342,8 +334,8 @@ class RobotTaskManagerNode(Node):
         ):
             result = self._call_sync(client, request)
             if result is None or not result.success:
-                self._log_event(f"{client.srv_name} failed while advancing to tray {self.tray_idx}", level="warn")
-        self._log_event(f"Advanced to tray_idx={self.tray_idx}")
+                self.get_logger().warn(f"{client.srv_name} failed while advancing to tray {self.tray_idx}")
+        self.get_logger().info(f"Advanced to tray_idx={self.tray_idx}")
 
     # ---- service handlers ---------------------------------------------------
 
@@ -403,15 +395,15 @@ class RobotTaskManagerNode(Node):
             if self.hard_stop_client.service_is_ready():
                 self.hard_stop_client.call_async(Trigger.Request())
             else:
-                self._log_event("/robot/hard_stop not available; falling back to checkpoint-only stop", level="warn")
+                self.get_logger().warn("/robot/hard_stop not available; falling back to checkpoint-only stop")
             response.success = True
             response.message = "Stop requested; current motion will halt immediately"
-            self._log_event("Emergency stop requested", level="warn")
+            self.get_logger().warn("Emergency stop requested")
         else:
             self.stop_event.clear()
             response.success = True
             response.message = "Resume requested; any paused task will continue"
-            self._log_event("Resume requested", level="warn")
+            self.get_logger().warn("Resume requested")
         return response
 
 

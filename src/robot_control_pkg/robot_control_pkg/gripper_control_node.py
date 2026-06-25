@@ -8,7 +8,6 @@ import sys
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-from std_msgs.msg import String
 from interfaces.srv import GripperControl
 
 if not rclpy.ok():
@@ -36,16 +35,8 @@ class GripperControlNode(Node):
         #end
         self.gripper_state = "OPEN"
 
-        # HMI의 "Robot Control Log" 탭용 - 터미널에만 찍히던 동작을 사람이 읽을
-        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
-        self.robot_log_pub = self.create_publisher(String, "/robot/log", 10)
-
         self.create_service(GripperControl, "/gripper/control", self.handle_gripper_control)
         self.get_logger().info("gripper_control_node ready")
-
-    def _log_event(self, message, level="info"):
-        getattr(self.get_logger(), level)(message)
-        self.robot_log_pub.publish(String(data=message))
 
     def handle_gripper_control(self, request, response):
         command = request.command
@@ -57,7 +48,7 @@ class GripperControlNode(Node):
         else:
             response.success = False
             response.message = f"Unsupported gripper command: {command}"
-            self._log_event(response.message, level="error")
+            self.get_logger().error(response.message)
             return response
         self.gripper_state = command
 
@@ -74,14 +65,14 @@ class GripperControlNode(Node):
         return False
 
     def open_gripper(self):
-        self._log_event("그리퍼 열기")
+        self.get_logger().info("그리퍼 열기")
         set_digital_output(1, OFF)
         set_digital_output(2, ON)
         self.wait_digital_input(2, ON, 5.0)
         return
 
     def close_gripper(self):
-        self._log_event("그리퍼 닫기")
+        self.get_logger().info("그리퍼 닫기")
         set_digital_output(1, ON)
         set_digital_output(2, OFF)
         self.wait_digital_input(1, ON, 5.0)

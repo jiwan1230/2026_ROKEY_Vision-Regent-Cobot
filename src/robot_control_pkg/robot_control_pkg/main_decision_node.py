@@ -11,7 +11,7 @@ re-evaluated here and may trigger the next tier's task.
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from interfaces.msg import TubeState
@@ -36,16 +36,9 @@ class MainDecisionNode(Node):
         # 자동 dispatch를 안 함 - HMI가 직접 start_task를 호출하는 것과 이 자동 루프가
         # 동시에 같은 서비스를 부르는 충돌을 막기 위함.
         self.system_running = False
-        # on_tube_state가 매 vision 발행 주기마다(7Hz 등) 같은 이유로 계속 막힐 때
-        # 그 이유를 매번 로그에 쏟아내지 않고, 이유가 바뀔 때만 한 번 찍기 위함.
-        self._last_withhold_reason = None
 
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
-
-        # HMI의 "Robot Control Log" 탭용 - 터미널에만 찍히던 동작을 사람이 읽을
-        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
-        self.robot_log_pub = self.create_publisher(String, "/robot/log", 10)
 
         self.create_subscription(TubeState, "/vision/tube_state", self.on_tube_state, 10)
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
@@ -68,15 +61,6 @@ class MainDecisionNode(Node):
         self.publish_system_running()
 
         self.get_logger().info("main_decision_node ready")
-
-    def _log_event(self, message, level="info"):
-        getattr(self.get_logger(), level)(message)
-        self.robot_log_pub.publish(String(data=message))
-
-    def _log_withheld(self, reason):
-        if reason != self._last_withhold_reason:
-            self._last_withhold_reason = reason
-            self._log_event(reason, level="warn")
 
     def publish_hand_safety_enabled(self):
         self.hand_safety_enabled_pub.publish(Bool(data=self.hand_safety_enabled))
@@ -103,7 +87,7 @@ class MainDecisionNode(Node):
             self.stop_task_client.call_async(StopTask.Request(stop=False))
         response.success = True
         response.message = f"system_running set to {self.system_running}"
-        self._log_event(response.message, level="warn")
+        self.get_logger().warn(response.message)
         return response
 
     def on_camera_status(self, msg: Bool):
@@ -115,10 +99,10 @@ class MainDecisionNode(Node):
         if not self.hand_safety_enabled:
             return
         if msg.data and not was_detected and self.busy:
-            self._log_event("Hand detected in work area - requesting emergency stop", level="warn")
+            self.get_logger().warn("Hand detected in work area - requesting emergency stop")
             self.stop_task_client.call_async(StopTask.Request(stop=True))
         elif not msg.data and was_detected and self.busy:
-            self._log_event("Hand cleared from work area - resuming paused task", level="warn")
+            self.get_logger().warn("Hand cleared from work area - resuming paused task")
             self.stop_task_client.call_async(StopTask.Request(stop=False))
 
     def on_tube_state(self, msg: TubeState):
@@ -127,16 +111,16 @@ class MainDecisionNode(Node):
         if not self.system_running:
             return
         if not self.camera_ok:
-            self._log_withheld("Camera not OK - robot motion withheld")
+            self.get_logger().warn("Camera not OK - robot motion withheld")
             return
         if self.hand_detected and self.hand_safety_enabled:
-            self._log_withheld("Hand detected in work area - robot motion withheld")
+            self.get_logger().warn("Hand detected in work area - robot motion withheld")
             return
         if TubeState.STATE_UNKNOWN in msg.state:
-            self._log_withheld(f"Unknown tube state present {list(msg.state)} - withholding task")
+            self.get_logger().warn(f"Unknown tube state present {list(msg.state)} - withholding task")
             return
         if len(msg.tube_index) < self.num_tubes:
-            self._log_withheld("Incomplete tube state array - withholding task")
+            self.get_logger().warn("Incomplete tube state array - withholding task")
             return
 
         all_normal = all(s == TubeState.STATE_NORMAL for s in msg.state)
@@ -146,13 +130,12 @@ class MainDecisionNode(Node):
             self.tray_transferred = False
 
         if not self.start_task_client.service_is_ready():
-            self._log_withheld("/robot/start_task not available yet")
+            self.get_logger().warn("/robot/start_task not available yet")
             return
 
-        self._last_withhold_reason = None
         request = StartTask.Request(tube_index=list(msg.tube_index), state=list(msg.state))
         self.busy = True
-        self._log_event(f"Dispatching start_task for state={list(msg.state)}")
+        self.get_logger().info(f"Dispatching start_task for state={list(msg.state)}")
         future = self.start_task_client.call_async(request)
         future.add_done_callback(lambda f: self.on_start_task_done(f, all_normal))
 
@@ -164,7 +147,7 @@ class MainDecisionNode(Node):
             self.get_logger().error(f"start_task call failed: {e}")
             return
 
-        self._log_event(f"start_task result: success={result.success} message={result.message}")
+        self.get_logger().info(f"start_task result: success={result.success} message={result.message}")
         if was_all_normal and result.success:
             self.tray_transferred = True
 

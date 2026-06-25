@@ -15,7 +15,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from dsr_msgs2.srv import MoveStop
 from interfaces.srv import MoveToPose
@@ -64,10 +63,6 @@ class DoosanRobotControlNode(Node):
 
         self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
 
-        # HMI의 "Robot Control Log" 탭용 - 터미널에만 찍히던 동작을 사람이 읽을
-        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
-        self.robot_log_pub = self.create_publisher(String, "/robot/log", 10)
-
         self.create_service(MoveToPose, "/robot/move_to_pose", self.handle_move_to_pose)
         # move_to_pose와 다른 callback group을 써야 함 - 기본(상호배제) 그룹을 같이 쓰면
         # movel()이 진행 중인 동안 이 서비스 콜백도 같은 그룹에서 큐에 걸려 대기하느라
@@ -77,14 +72,10 @@ class DoosanRobotControlNode(Node):
         )
         self.get_logger().info(f"doosan_robot_control_node ready ({len(self.poses)} poses loaded)")
 
-    def _log_event(self, message, level="info"):
-        getattr(self.get_logger(), level)(message)
-        self.robot_log_pub.publish(String(data=message))
-
     #20260624 준형, move_type에 따라 이동방식 다르게 적용
     #20260625 준형, rotate 로직 변경
     def move(self, pose_name, target, move_type):
-        self._log_event(f"MOVE -> {pose_name} {target} {move_type}")
+        self.get_logger().info(f"MOVE -> {pose_name} {target} {move_type}")
         if move_type == 'move':
             movel(target, vel=self.get_parameter("m_velocity").value, acc=self.get_parameter("m_acceleration").value)
         elif move_type == 'down':
@@ -110,7 +101,7 @@ class DoosanRobotControlNode(Node):
         if not self.has_parameter(param_name):
             response.success = False
             response.message = f"Unknown pose_name: {pose_name}"
-            self._log_event(response.message, level="error")
+            self.get_logger().error(response.message)
             return response
 
         target = self.get_parameter(param_name).value
@@ -130,22 +121,22 @@ class DoosanRobotControlNode(Node):
         if not self.move_stop_client.service_is_ready():
             response.success = False
             response.message = "motion/move_stop service not available"
-            self._log_event(response.message, level="error")
+            self.get_logger().error(response.message)
             return response
 
         future = self.move_stop_client.call_async(MoveStop.Request(stop_mode=DR_HOLD))
         future.add_done_callback(self._log_move_stop_result)
         response.success = True
         response.message = "Hard stop requested"
-        self._log_event(response.message, level="warn")
+        self.get_logger().warn(response.message)
         return response
 
     def _log_move_stop_result(self, future):
         try:
             result = future.result()
-            self._log_event(f"motion/move_stop -> success={result.success}", level="warn")
+            self.get_logger().warn(f"motion/move_stop -> success={result.success}")
         except Exception as e:
-            self._log_event(f"motion/move_stop call failed: {e}", level="error")
+            self.get_logger().error(f"motion/move_stop call failed: {e}")
 #end
 
 def main():
