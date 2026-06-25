@@ -80,8 +80,8 @@ def apply_virtual_tcp(target_pose, tcp_offset):
     T_target[0:3, 3] = [x, y, z]
 
     T_tcp = np.eye(4)
-    T_tcp[0:3, 3] = tcp_offset
-    
+    T_tcp[0:3, 3] = tcp_offset[0:3]
+
     T_flange = T_target @ np.linalg.inv(T_tcp)
 
     new_xyz = T_flange[0:3, 3].tolist()
