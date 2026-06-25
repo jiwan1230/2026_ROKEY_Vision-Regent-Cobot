@@ -216,6 +216,8 @@ class RobotTaskManagerNode(Node):
         #채울 튜브 위치로 이동
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
         self.move(tube_approach_pose(idx), 'move')
+        #20260625 준형, refill_pose(45deg 기울인 위치)로 이동 추가
+        self.move(tube_refill_pose(idx), 'down')
 
         max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
         self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
@@ -229,13 +231,15 @@ class RobotTaskManagerNode(Node):
             if result.state == TubeState.STATE_DISPOSE_NEEDED:
                 raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-            self.move(tube_refill_pose(idx), 'rotate', result.current_ratio)
+            self.move(tube_refill_pose(idx), 'rotate')
             self._check_stop()
             time.sleep(0.3)  # simulated dispense duration for one pour increment
         else:
             raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
 
         #시약통 반납
+        #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
+        self.move(tube_refill_pose(idx), 'down')
         self.move(tube_approach_pose(idx), 'move')
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
         self.move(REFILL_POSE, 'move')
@@ -265,6 +269,8 @@ class RobotTaskManagerNode(Node):
     # ---- service handlers ---------------------------------------------------
 
     def handle_start_task(self, request, response):
+        #20260625 준형, start_task(시스템 시작)시 그리퍼 open 추가
+        self.grip(GripperControl.Request.COMMAND_OPEN)
         self.stop_event.clear()
         state_map = dict(zip(request.tube_index, request.state))
 

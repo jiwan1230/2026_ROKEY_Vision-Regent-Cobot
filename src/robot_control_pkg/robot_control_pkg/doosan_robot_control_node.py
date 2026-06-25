@@ -30,7 +30,7 @@ DR_init.__dsr__node = dsr_node
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 
-from DSR_ROBOT2 import movel, move_periodic
+from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE
 
 class DoosanRobotControlNode(Node):
     def __init__(self):
@@ -57,7 +57,8 @@ class DoosanRobotControlNode(Node):
         self.get_logger().info(f"doosan_robot_control_node ready ({len(self.poses)} poses loaded)")
 
     #20260624 준형, move_type에 따라 이동방식 다르게 적용
-    def move(self, pose_name, target, move_type, current_ratio):
+    #20260625 준형, rotate 로직 변경
+    def move(self, pose_name, target, move_type):
         self.get_logger().info(f"MOVE -> {pose_name} {target} {move_type}")
         if move_type == 'move':
             movel(target, vel=self.get_parameter("m_velocity").value, acc=self.get_parameter("m_acceleration").value)
@@ -65,17 +66,19 @@ class DoosanRobotControlNode(Node):
             movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'down_tray':
             movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
-        elif move_type == 'rotate':            
-            rotate_deg = (1 - current_ratio) / 0.01 * 1
-            target_copy = target.copy()
-            target_copy[3] = 90
-            target_copy[4] += rotate_deg
-            target_copy[5] = -90
-            movel(target_copy, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+        elif move_type == 'rotate':
+            rotate_pos = get_current_posx(DR_BASE)[0]
+            rotate_pos[2] += -1.7
+            rotate_pos[4] += -2
+            rotate_pos[3] = 90
+            rotate_pos[5] = -90
+            movel(rotate_pos, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            move_periodic([0, 0, 0, 0, 0, 3], period=0.5, repeat=3)
         time.sleep(self.move_duration_sec)
     #end
     
     #20260624 준형, pose 실시간 업데이트 적용
+    #20260625 준형, ratio 더 이상 사용하지 않으므로 해당 내용 삭제
     def handle_move_to_pose(self, request, response):
         pose_name = request.pose_name
         param_name = f"poses.{pose_name}"
@@ -88,7 +91,7 @@ class DoosanRobotControlNode(Node):
         target = self.get_parameter(param_name).value
 
         self.get_logger().info(f'{target} to move')
-        self.move(pose_name, target, request.move_type, request.current_ratio)
+        self.move(pose_name, target, request.move_type)
         self.current_pose_name = pose_name
 
         response.success = True
@@ -96,7 +99,7 @@ class DoosanRobotControlNode(Node):
         return response
 #end
 
-def main(args=None):
+def main():
     control_node = DoosanRobotControlNode()
 
     executor = MultiThreadedExecutor()
