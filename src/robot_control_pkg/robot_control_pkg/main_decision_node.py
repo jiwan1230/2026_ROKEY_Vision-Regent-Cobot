@@ -11,7 +11,7 @@ re-evaluated here and may trigger the next tier's task.
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 
 from interfaces.msg import TubeState
@@ -40,6 +40,10 @@ class MainDecisionNode(Node):
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
 
+        # HMI의 "Robot Control Log" 탭용 - 터미널에만 찍히던 동작을 사람이 읽을
+        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
+        self.robot_log_pub = self.create_publisher(String, "/robot/log", 10)
+
         self.create_subscription(TubeState, "/vision/tube_state", self.on_tube_state, 10)
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
@@ -61,6 +65,10 @@ class MainDecisionNode(Node):
         self.publish_system_running()
 
         self.get_logger().info("main_decision_node ready")
+
+    def _log_event(self, message, level="info"):
+        getattr(self.get_logger(), level)(message)
+        self.robot_log_pub.publish(String(data=message))
 
     def publish_hand_safety_enabled(self):
         self.hand_safety_enabled_pub.publish(Bool(data=self.hand_safety_enabled))
@@ -87,7 +95,7 @@ class MainDecisionNode(Node):
             self.stop_task_client.call_async(StopTask.Request(stop=False))
         response.success = True
         response.message = f"system_running set to {self.system_running}"
-        self.get_logger().warn(response.message)
+        self._log_event(response.message, level="warn")
         return response
 
     def on_camera_status(self, msg: Bool):
@@ -99,10 +107,10 @@ class MainDecisionNode(Node):
         if not self.hand_safety_enabled:
             return
         if msg.data and not was_detected and self.busy:
-            self.get_logger().warn("Hand detected in work area - requesting emergency stop")
+            self._log_event("Hand detected in work area - requesting emergency stop", level="warn")
             self.stop_task_client.call_async(StopTask.Request(stop=True))
         elif not msg.data and was_detected and self.busy:
-            self.get_logger().warn("Hand cleared from work area - resuming paused task")
+            self._log_event("Hand cleared from work area - resuming paused task", level="warn")
             self.stop_task_client.call_async(StopTask.Request(stop=False))
 
     def on_tube_state(self, msg: TubeState):
@@ -135,7 +143,7 @@ class MainDecisionNode(Node):
 
         request = StartTask.Request(tube_index=list(msg.tube_index), state=list(msg.state))
         self.busy = True
-        self.get_logger().info(f"Dispatching start_task for state={list(msg.state)}")
+        self._log_event(f"Dispatching start_task for state={list(msg.state)}")
         future = self.start_task_client.call_async(request)
         future.add_done_callback(lambda f: self.on_start_task_done(f, all_normal))
 
@@ -147,7 +155,7 @@ class MainDecisionNode(Node):
             self.get_logger().error(f"start_task call failed: {e}")
             return
 
-        self.get_logger().info(f"start_task result: success={result.success} message={result.message}")
+        self._log_event(f"start_task result: success={result.success} message={result.message}")
         if was_all_normal and result.success:
             self.tray_transferred = True
 

@@ -102,6 +102,9 @@ class IntegratedHMINode(Node):
         # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
         # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
         self.vision_log_messages = []
+        # robot_control_pkg가 /robot/log로 보내는 동작 로그(그리퍼, MOVE, 정지/재개 등).
+        # 위와 같은 이유로 리스트에만 쌓아둔다.
+        self.robot_log_messages = []
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -130,6 +133,7 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
         self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
         self.create_subscription(String, '/vision/log', self._on_vision_log, 10)
+        self.create_subscription(String, '/robot/log', self._on_robot_log, 10)
 
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
@@ -164,6 +168,9 @@ class IntegratedHMINode(Node):
 
     def _on_vision_log(self, msg):
         self.vision_log_messages.append(msg.data)
+
+    def _on_robot_log(self, msg):
+        self.robot_log_messages.append(msg.data)
 
     def call_set_system_running(self, running: bool):
         return self.set_system_running_client.call_async(SetBool.Request(data=running))
@@ -205,6 +212,7 @@ class HMIDashboardApp(QDialog):
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
+        self._robot_log_seen = 0
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
 
@@ -444,6 +452,16 @@ class HMIDashboardApp(QDialog):
             self.textEdit_vision_log.append(f"[{ts}] {text}")
         self._vision_log_seen = len(messages)
 
+    def _update_robot_log(self):
+        # robot_control_pkg 쪽 동작 로그도 같은 "Robot Control Log" 탭(textEdit)에
+        # HMI 버튼 액션 로그와 같이 쌓는다 - 탭 이름 그대로의 의미에 맞음.
+        messages = self.node.robot_log_messages
+        if self._robot_log_seen >= len(messages):
+            return
+        for text in messages[self._robot_log_seen:]:
+            self.log(text)
+        self._robot_log_seen = len(messages)
+
     # -----------------------------------------------------------------
     # 화면 실시간 폴링 (150ms)
     # -----------------------------------------------------------------
@@ -499,6 +517,7 @@ class HMIDashboardApp(QDialog):
 
         self._update_grip_fail_banner()
         self._update_vision_log()
+        self._update_robot_log()
 
 
 def main(args=None):
