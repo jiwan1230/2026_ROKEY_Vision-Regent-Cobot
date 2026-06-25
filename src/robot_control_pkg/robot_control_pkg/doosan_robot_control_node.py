@@ -202,6 +202,8 @@ class DoosanRobotControlNode(Node):
             # (기존 코드에 있던 각도 변화량 적용)
             edge_pose[3] = 90      # Rx
             edge_pose[5] = -90     # Rz
+            edge_pose[2] -= 1.7
+            edge_pose[4] -= 2.0
             
             # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
             real_rotate_target = apply_virtual_tcp(edge_pose, self.current_tcp_offset)
