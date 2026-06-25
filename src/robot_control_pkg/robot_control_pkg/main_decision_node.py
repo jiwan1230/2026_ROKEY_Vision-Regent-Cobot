@@ -36,6 +36,9 @@ class MainDecisionNode(Node):
         # 자동 dispatch를 안 함 - HMI가 직접 start_task를 호출하는 것과 이 자동 루프가
         # 동시에 같은 서비스를 부르는 충돌을 막기 위함.
         self.system_running = False
+        # on_tube_state가 매 vision 발행 주기마다(7Hz 등) 같은 이유로 계속 막힐 때
+        # 그 이유를 매번 로그에 쏟아내지 않고, 이유가 바뀔 때만 한 번 찍기 위함.
+        self._last_withhold_reason = None
 
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
@@ -69,6 +72,11 @@ class MainDecisionNode(Node):
     def _log_event(self, message, level="info"):
         getattr(self.get_logger(), level)(message)
         self.robot_log_pub.publish(String(data=message))
+
+    def _log_withheld(self, reason):
+        if reason != self._last_withhold_reason:
+            self._last_withhold_reason = reason
+            self._log_event(reason, level="warn")
 
     def publish_hand_safety_enabled(self):
         self.hand_safety_enabled_pub.publish(Bool(data=self.hand_safety_enabled))
@@ -119,16 +127,16 @@ class MainDecisionNode(Node):
         if not self.system_running:
             return
         if not self.camera_ok:
-            self.get_logger().warn("Camera not OK - robot motion withheld")
+            self._log_withheld("Camera not OK - robot motion withheld")
             return
         if self.hand_detected and self.hand_safety_enabled:
-            self.get_logger().warn("Hand detected in work area - robot motion withheld")
+            self._log_withheld("Hand detected in work area - robot motion withheld")
             return
         if TubeState.STATE_UNKNOWN in msg.state:
-            self.get_logger().warn(f"Unknown tube state present {list(msg.state)} - withholding task")
+            self._log_withheld(f"Unknown tube state present {list(msg.state)} - withholding task")
             return
         if len(msg.tube_index) < self.num_tubes:
-            self.get_logger().warn("Incomplete tube state array - withholding task")
+            self._log_withheld("Incomplete tube state array - withholding task")
             return
 
         all_normal = all(s == TubeState.STATE_NORMAL for s in msg.state)
@@ -138,9 +146,10 @@ class MainDecisionNode(Node):
             self.tray_transferred = False
 
         if not self.start_task_client.service_is_ready():
-            self.get_logger().warn("/robot/start_task not available yet")
+            self._log_withheld("/robot/start_task not available yet")
             return
 
+        self._last_withhold_reason = None
         request = StartTask.Request(tube_index=list(msg.tube_index), state=list(msg.state))
         self.busy = True
         self._log_event(f"Dispatching start_task for state={list(msg.state)}")
