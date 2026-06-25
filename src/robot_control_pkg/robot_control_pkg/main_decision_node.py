@@ -12,6 +12,7 @@ re-evaluated here and may trigger the next tier's task.
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
+from std_srvs.srv import SetBool
 
 from interfaces.msg import TubeState
 from interfaces.srv import StartTask, StopTask
@@ -28,6 +29,9 @@ class MainDecisionNode(Node):
         self.camera_ok = True
         self.hand_detected = False
         self.tray_transferred = False
+        # 손 감지 시 자동 비상정지 반응의 런타임 on/off. 끄더라도 hand_detected
+        # 구독/표시는 계속 갱신되고, stop_task 호출과 task 보류만 건너뜀.
+        self.hand_safety_enabled = True
 
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
@@ -36,7 +40,29 @@ class MainDecisionNode(Node):
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
 
+        # HMI 등 다른 클라이언트가 토글하고 현재 상태를 구독할 수 있게 노출
+        self.hand_safety_enabled_pub = self.create_publisher(
+            Bool, "/robot/hand_safety_enabled", 10
+        )
+        self.create_service(
+            SetBool, "/robot/set_hand_safety_enabled", self.handle_set_hand_safety_enabled
+        )
+        self.publish_hand_safety_enabled()
+
         self.get_logger().info("main_decision_node ready")
+
+    def publish_hand_safety_enabled(self):
+        self.hand_safety_enabled_pub.publish(Bool(data=self.hand_safety_enabled))
+
+    def handle_set_hand_safety_enabled(self, request, response):
+        self.hand_safety_enabled = request.data
+        self.publish_hand_safety_enabled()
+        response.success = True
+        response.message = (
+            f"hand-detected auto-stop {'enabled' if self.hand_safety_enabled else 'disabled'}"
+        )
+        self.get_logger().warn(response.message)
+        return response
 
     def on_camera_status(self, msg: Bool):
         self.camera_ok = msg.data
@@ -44,6 +70,8 @@ class MainDecisionNode(Node):
     def on_hand_detected(self, msg: Bool):
         was_clear = not self.hand_detected
         self.hand_detected = msg.data
+        if not self.hand_safety_enabled:
+            return
         if msg.data and was_clear and self.busy:
             self.get_logger().warn("Hand detected in work area - requesting emergency stop")
             self.stop_task_client.call_async(StopTask.Request(stop=True))
@@ -54,7 +82,7 @@ class MainDecisionNode(Node):
         if not self.camera_ok:
             self.get_logger().warn("Camera not OK - robot motion withheld")
             return
-        if self.hand_detected:
+        if self.hand_detected and self.hand_safety_enabled:
             self.get_logger().warn("Hand detected in work area - robot motion withheld")
             return
         if TubeState.STATE_UNKNOWN in msg.state:
