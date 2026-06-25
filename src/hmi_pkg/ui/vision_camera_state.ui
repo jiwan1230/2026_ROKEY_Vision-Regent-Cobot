@@ -6,22 +6,22 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1342</width>
-    <height>930</height>
+    <width>1518</width>
+    <height>1024</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Vision AI Reagent QC - 통합 HMI</string>
+   <string>Vision AI Reagent QC - Integrated HMI</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QTabWidget" name="tabWidget">
+    <widget class="QTabWidget" name="JOG">
      <property name="currentIndex">
-      <number>0</number>
+      <number>2</number>
      </property>
      <widget class="QWidget" name="tab_dashboard">
       <attribute name="title">
-       <string>📺 운영 대시보드</string>
+       <string>Operation Dashboard</string>
       </attribute>
       <widget class="QLabel" name="videoLabel">
        <property name="geometry">
@@ -226,7 +226,7 @@
          <string>background-color:#c0392b; color:white; font-weight:bold; font-size:14px; border-radius:4px; padding-left:8px;</string>
         </property>
         <property name="text">
-         <string>⚠ GRIP FAILED - 그리퍼가 물체를 잡지 못했습니다</string>
+         <string>GRIP FAILED - Gripper failed to grasp object</string>
         </property>
        </widget>
        <widget class="QPushButton" name="btn_clear_fail">
@@ -242,7 +242,7 @@
          <bool>false</bool>
         </property>
         <property name="text">
-         <string>확인 (Clear)</string>
+         <string>Confirm (Clear)</string>
         </property>
        </widget>
       </widget>
@@ -320,7 +320,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>해상도:</string>
+         <string>Resolution:</string>
         </property>
        </widget>
        <widget class="QComboBox" name="comboBox_resolution">
@@ -343,7 +343,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>적용</string>
+         <string>Apply</string>
         </property>
        </widget>
        <widget class="QPushButton" name="btn_yolo_toggle">
@@ -356,7 +356,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>🎯 YOLO 추론 OFF</string>
+         <string>YOLO Inference OFF</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -372,7 +372,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>그리퍼 강도:</string>
+         <string>Gripper Force:</string>
         </property>
        </widget>
        <widget class="QSlider" name="slider_gripper_force">
@@ -420,7 +420,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>Slot Anchor 초기화</string>
+         <string>Reset Slot Anchor</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -592,7 +592,7 @@
          <x>10</x>
          <y>680</y>
          <width>1321</width>
-         <height>211</height>
+         <height>291</height>
         </rect>
        </property>
        <property name="currentIndex">
@@ -600,7 +600,7 @@
        </property>
        <widget class="QWidget" name="robo_tcontrol_log">
         <attribute name="title">
-         <string>🤖 로봇 제어 로그</string>
+         <string>Robot Control Log</string>
         </attribute>
         <widget class="QGroupBox" name="groupBox_5">
          <property name="geometry">
@@ -617,8 +617,8 @@
          <widget class="QTextEdit" name="textEdit">
           <property name="geometry">
            <rect>
-            <x>20</x>
-            <y>40</y>
+            <x>30</x>
+            <y>30</y>
             <width>1261</width>
             <height>191</height>
            </rect>
@@ -628,14 +628,423 @@
        </widget>
        <widget class="QWidget" name="tab_2">
         <attribute name="title">
-         <string>📷 비전 로그</string>
+         <string>Vision Log</string>
         </attribute>
+        <widget class="QGroupBox" name="groupBox_7">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>10</y>
+           <width>1321</width>
+           <height>241</height>
+          </rect>
+         </property>
+         <property name="title">
+          <string/>
+         </property>
+         <widget class="QTextEdit" name="textEdit_2">
+          <property name="geometry">
+           <rect>
+            <x>30</x>
+            <y>30</y>
+            <width>1261</width>
+            <height>191</height>
+           </rect>
+          </property>
+         </widget>
+        </widget>
+       </widget>
+      </widget>
+      <widget class="QGroupBox" name="groupBox_6">
+       <property name="geometry">
+        <rect>
+         <x>1080</x>
+         <y>20</y>
+         <width>221</width>
+         <height>151</height>
+        </rect>
+       </property>
+       <property name="title">
+        <string>Robot Operation Status</string>
+       </property>
+       <widget class="QLabel" name="lbl_led_stop">
+        <property name="geometry">
+         <rect>
+          <x>15</x>
+          <y>32</y>
+          <width>28</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>background-color: #e74c3c; border-radius: 14px; border: 2px solid #c0392b;</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_led_stop_text">
+        <property name="geometry">
+         <rect>
+          <x>55</x>
+          <y>32</y>
+          <width>150</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>font-size: 13px; font-weight: bold; color: #e74c3c;</string>
+        </property>
+        <property name="text">
+         <string>STOP</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_led_run">
+        <property name="geometry">
+         <rect>
+          <x>15</x>
+          <y>70</y>
+          <width>28</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>background-color: #555555; border-radius: 14px; border: 2px solid #333333;</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_led_run_text">
+        <property name="geometry">
+         <rect>
+          <x>55</x>
+          <y>70</y>
+          <width>150</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>font-size: 13px; font-weight: bold; color: #888888;</string>
+        </property>
+        <property name="text">
+         <string>RUN</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_led_error">
+        <property name="geometry">
+         <rect>
+          <x>15</x>
+          <y>108</y>
+          <width>28</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>background-color: #555555; border-radius: 14px; border: 2px solid #333333;</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+       <widget class="QLabel" name="lbl_led_error_text">
+        <property name="geometry">
+         <rect>
+          <x>55</x>
+          <y>108</y>
+          <width>150</width>
+          <height>28</height>
+         </rect>
+        </property>
+        <property name="styleSheet">
+         <string>font-size: 13px; font-weight: bold; color: #888888;</string>
+        </property>
+        <property name="text">
+         <string>ERROR</string>
+        </property>
        </widget>
       </widget>
      </widget>
+     <widget class="QWidget" name="tab_jog">
+      <attribute name="title">
+       <string>JOG Control</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="vl_jog">
+       <property name="spacing"><number>10</number></property>
+       <property name="leftMargin"><number>20</number></property>
+       <property name="topMargin"><number>14</number></property>
+       <property name="rightMargin"><number>20</number></property>
+       <property name="bottomMargin"><number>14</number></property>
+
+       <!-- ── 헤더: 모드 선택 + 스텝 선택 ── -->
+       <item>
+        <layout class="QHBoxLayout" name="hl_jog_header">
+         <property name="spacing"><number>10</number></property>
+         <item>
+          <widget class="QPushButton" name="btn_jog_joint_mode">
+           <property name="minimumSize"><size><width>160</width><height>48</height></size></property>
+           <property name="styleSheet">
+            <string>background-color:#1565C0; color:white; font-size:15px; font-weight:bold; border-radius:8px;</string>
+           </property>
+           <property name="text"><string>Joint Mode</string></property>
+           <property name="checkable"><bool>true</bool></property>
+           <property name="checked"><bool>true</bool></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_jog_tcp_mode">
+           <property name="minimumSize"><size><width>160</width><height>48</height></size></property>
+           <property name="styleSheet">
+            <string>background-color:#455A64; color:white; font-size:15px; font-weight:bold; border-radius:8px;</string>
+           </property>
+           <property name="text"><string>TCP Mode</string></property>
+           <property name="checkable"><bool>true</bool></property>
+          </widget>
+         </item>
+         <item>
+          <spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer>
+         </item>
+         <item>
+          <widget class="QLabel" name="lbl_jog_step_title">
+           <property name="styleSheet"><string>font-size:14px; font-weight:bold;</string></property>
+           <property name="text"><string>Step Size:</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="combo_jog_step">
+           <property name="minimumSize"><size><width>110</width><height>38</height></size></property>
+           <property name="styleSheet"><string>font-size:14px; padding:4px;</string></property>
+           <item><property name="text"><string>0.1</string></property></item>
+           <item><property name="text"><string>1.0</string></property></item>
+           <item><property name="text"><string>5.0</string></property></item>
+           <item><property name="text"><string>10.0</string></property></item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lbl_jog_step_unit">
+           <property name="styleSheet"><string>font-size:14px;</string></property>
+           <property name="text"><string>deg / mm</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer>
+         </item>
+        </layout>
+       </item>
+
+       <!-- ── 메인 스택: Joint / TCP ── -->
+       <item>
+        <widget class="QStackedWidget" name="stack_jog">
+         <property name="currentIndex"><number>0</number></property>
+
+         <!-- ── Page 0: Joint Mode ── -->
+         <widget class="QWidget" name="page_jog_joint">
+          <layout class="QVBoxLayout" name="vl_jog_joint">
+           <property name="spacing"><number>6</number></property>
+           <item>
+            <widget class="QGroupBox" name="gb_joint">
+             <property name="title"><string>Joint Angle Control  ( deg )</string></property>
+             <property name="styleSheet"><string>QGroupBox { font-size:14px; font-weight:bold; }</string></property>
+             <layout class="QVBoxLayout" name="vl_gb_joint">
+              <property name="spacing"><number>8</number></property>
+              <property name="leftMargin"><number>20</number></property>
+              <property name="topMargin"><number>18</number></property>
+              <property name="rightMargin"><number>20</number></property>
+              <property name="bottomMargin"><number>12</number></property>
+
+              <!-- J1 -->
+              <item><layout class="QHBoxLayout" name="hl_j1">
+               <item><widget class="QLabel" name="lbl_j1"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J1</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j1_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j1_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j1_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- J2 -->
+              <item><layout class="QHBoxLayout" name="hl_j2">
+               <item><widget class="QLabel" name="lbl_j2"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J2</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j2_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j2_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j2_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- J3 -->
+              <item><layout class="QHBoxLayout" name="hl_j3">
+               <item><widget class="QLabel" name="lbl_j3"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J3</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j3_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j3_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j3_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- J4 -->
+              <item><layout class="QHBoxLayout" name="hl_j4">
+               <item><widget class="QLabel" name="lbl_j4"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J4</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j4_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j4_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j4_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- J5 -->
+              <item><layout class="QHBoxLayout" name="hl_j5">
+               <item><widget class="QLabel" name="lbl_j5"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J5</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j5_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j5_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j5_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- J6 -->
+              <item><layout class="QHBoxLayout" name="hl_j6">
+               <item><widget class="QLabel" name="lbl_j6"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold;</string></property><property name="text"><string>J6</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j6_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_j6_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_j6_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+             </layout>
+            </widget>
+           </item>
+           <item><spacer><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property></spacer></item>
+          </layout>
+         </widget>
+
+         <!-- ── Page 1: TCP Mode ── -->
+         <widget class="QWidget" name="page_jog_tcp">
+          <layout class="QVBoxLayout" name="vl_jog_tcp">
+           <property name="spacing"><number>6</number></property>
+           <item>
+            <widget class="QGroupBox" name="gb_tcp">
+             <property name="title"><string>TCP Position / Orientation</string></property>
+             <property name="styleSheet"><string>QGroupBox { font-size:14px; font-weight:bold; }</string></property>
+             <layout class="QVBoxLayout" name="vl_gb_tcp">
+              <property name="spacing"><number>8</number></property>
+              <property name="leftMargin"><number>20</number></property>
+              <property name="topMargin"><number>18</number></property>
+              <property name="rightMargin"><number>20</number></property>
+              <property name="bottomMargin"><number>12</number></property>
+
+              <!-- X (mm) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_x">
+               <item><widget class="QLabel" name="lbl_tcp_x_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#42A5F5;</string></property><property name="text"><string>X</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_x_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_x_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_x_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_x_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>mm</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- Y (mm) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_y">
+               <item><widget class="QLabel" name="lbl_tcp_y_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#66BB6A;</string></property><property name="text"><string>Y</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_y_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_y_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_y_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_y_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>mm</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- Z (mm) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_z">
+               <item><widget class="QLabel" name="lbl_tcp_z_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#EF5350;</string></property><property name="text"><string>Z</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_z_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_z_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_z_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_z_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>mm</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- A (deg) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_a">
+               <item><widget class="QLabel" name="lbl_tcp_a_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#FFA726;</string></property><property name="text"><string>A</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_a_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_a_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_a_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_a_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>deg</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- B (deg) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_b">
+               <item><widget class="QLabel" name="lbl_tcp_b_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#AB47BC;</string></property><property name="text"><string>B</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_b_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_b_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_b_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_b_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>deg</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+              <!-- C (deg) -->
+              <item><layout class="QHBoxLayout" name="hl_tcp_c">
+               <item><widget class="QLabel" name="lbl_tcp_c_name"><property name="minimumSize"><size><width>60</width><height>0</height></size></property><property name="styleSheet"><string>font-size:16px; font-weight:bold; color:#26C6DA;</string></property><property name="text"><string>C</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_c_minus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#C62828; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>-</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_c_val"><property name="minimumSize"><size><width>140</width><height>56</height></size></property><property name="maximumSize"><size><width>140</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1C2833; color:#00E676; font-size:20px; font-family:monospace; border-radius:6px; padding:4px 12px;</string></property><property name="text"><string>  0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+               <item><widget class="QPushButton" name="btn_tcp_c_plus"><property name="minimumSize"><size><width>60</width><height>56</height></size></property><property name="maximumSize"><size><width>60</width><height>56</height></size></property><property name="styleSheet"><string>background-color:#1B5E20; color:white; font-size:26px; font-weight:bold; border-radius:8px;</string></property><property name="text"><string>+</string></property></widget></item>
+               <item><widget class="QLabel" name="lbl_tcp_c_unit"><property name="styleSheet"><string>font-size:13px; color:#888;</string></property><property name="text"><string>deg</string></property></widget></item>
+               <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout></item>
+
+             </layout>
+            </widget>
+           </item>
+           <item><spacer><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property></spacer></item>
+          </layout>
+         </widget>
+
+        </widget>
+       </item>
+
+       <!-- ── 하단: JOG 속도 + STOP ── -->
+       <item>
+        <layout class="QHBoxLayout" name="hl_jog_footer">
+         <property name="spacing"><number>16</number></property>
+         <item>
+          <widget class="QGroupBox" name="gb_jog_speed">
+           <property name="title"><string>JOG Speed</string></property>
+           <property name="styleSheet"><string>QGroupBox { font-size:13px; font-weight:bold; }</string></property>
+           <layout class="QHBoxLayout" name="hl_speed">
+            <property name="leftMargin"><number>12</number></property>
+            <property name="rightMargin"><number>12</number></property>
+            <item>
+             <widget class="QSlider" name="slider_jog_speed">
+              <property name="minimumSize"><size><width>300</width><height>0</height></size></property>
+              <property name="minimum"><number>1</number></property>
+              <property name="maximum"><number>100</number></property>
+              <property name="value"><number>20</number></property>
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="lbl_jog_speed_val">
+              <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
+              <property name="styleSheet"><string>font-size:15px; font-weight:bold;</string></property>
+              <property name="text"><string>20 %</string></property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_jog_stop">
+           <property name="minimumSize"><size><width>180</width><height>70</height></size></property>
+           <property name="styleSheet">
+            <string>background-color:#B71C1C; color:white; font-size:20px; font-weight:bold; border-radius:10px; letter-spacing:2px;</string>
+           </property>
+           <property name="text"><string>STOP</string></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+
+      </layout>
+     </widget>
      <widget class="QWidget" name="tab_admin">
       <attribute name="title">
-       <string>🔐 시스템 관리자</string>
+       <string>시스템 관리자</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_admin">
        <property name="spacing">
@@ -656,7 +1065,7 @@
        <item>
         <widget class="QStackedWidget" name="stack_admin">
          <property name="currentIndex">
-          <number>0</number>
+          <number>1</number>
          </property>
          <widget class="QWidget" name="page_login">
           <layout class="QVBoxLayout" name="vl_login">
@@ -950,10 +1359,9 @@
              <property name="currentIndex">
               <number>0</number>
              </property>
-             <!-- ── 관리자 탭 1: 좌표 설정 (YAML) ── -->
              <widget class="QWidget" name="tab_admin_yaml">
               <attribute name="title">
-               <string>⚙️ 좌표 설정 (YAML)</string>
+               <string>좌표 설정 (YAML)</string>
               </attribute>
               <layout class="QVBoxLayout" name="vl_admin_yaml">
                <property name="spacing">
@@ -977,18 +1385,90 @@
                   <string>Home Pose</string>
                  </property>
                  <layout class="QHBoxLayout" name="horizontalLayout_1">
-                  <item><widget class="QLabel" name="lbl_home_x"><property name="text"><string>x:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_x"><property name="text"><string>400.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_home_y"><property name="text"><string>y:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_y"><property name="text"><string>0.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_home_z"><property name="text"><string>z:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_z"><property name="text"><string>400.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_home_rx"><property name="text"><string>rx:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_rx"><property name="text"><string>0.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_home_ry"><property name="text"><string>ry:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_ry"><property name="text"><string>180.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_home_rz"><property name="text"><string>rz:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_home_rz"><property name="text"><string>0.0</string></property></widget></item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_x">
+                    <property name="text">
+                     <string>x:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_x">
+                    <property name="text">
+                     <string>400.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_y">
+                    <property name="text">
+                     <string>y:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_y">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_z">
+                    <property name="text">
+                     <string>z:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_z">
+                    <property name="text">
+                     <string>400.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_rx">
+                    <property name="text">
+                     <string>rx:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_rx">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_ry">
+                    <property name="text">
+                     <string>ry:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_ry">
+                    <property name="text">
+                     <string>180.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_home_rz">
+                    <property name="text">
+                     <string>rz:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_home_rz">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>
@@ -998,18 +1478,90 @@
                   <string>Waste Pose</string>
                  </property>
                  <layout class="QHBoxLayout" name="horizontalLayout_2">
-                  <item><widget class="QLabel" name="lbl_waste_x"><property name="text"><string>x:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_x"><property name="text"><string>500.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_waste_y"><property name="text"><string>y:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_y"><property name="text"><string>-350.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_waste_z"><property name="text"><string>z:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_z"><property name="text"><string>200.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_waste_rx"><property name="text"><string>rx:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_rx"><property name="text"><string>0.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_waste_ry"><property name="text"><string>ry:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_ry"><property name="text"><string>180.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_waste_rz"><property name="text"><string>rz:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_waste_rz"><property name="text"><string>0.0</string></property></widget></item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_x">
+                    <property name="text">
+                     <string>x:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_x">
+                    <property name="text">
+                     <string>500.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_y">
+                    <property name="text">
+                     <string>y:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_y">
+                    <property name="text">
+                     <string>-350.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_z">
+                    <property name="text">
+                     <string>z:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_z">
+                    <property name="text">
+                     <string>200.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_rx">
+                    <property name="text">
+                     <string>rx:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_rx">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_ry">
+                    <property name="text">
+                     <string>ry:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_ry">
+                    <property name="text">
+                     <string>180.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_waste_rz">
+                    <property name="text">
+                     <string>rz:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_waste_rz">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>
@@ -1019,18 +1571,90 @@
                   <string>Normal Tray Approach Pose</string>
                  </property>
                  <layout class="QHBoxLayout" name="horizontalLayout_3">
-                  <item><widget class="QLabel" name="lbl_normal_x"><property name="text"><string>x:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_x"><property name="text"><string>500.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_normal_y"><property name="text"><string>y:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_y"><property name="text"><string>350.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_normal_z"><property name="text"><string>z:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_z"><property name="text"><string>300.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_normal_rx"><property name="text"><string>rx:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_rx"><property name="text"><string>0.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_normal_ry"><property name="text"><string>ry:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_ry"><property name="text"><string>180.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_normal_rz"><property name="text"><string>rz:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_normal_rz"><property name="text"><string>0.0</string></property></widget></item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_x">
+                    <property name="text">
+                     <string>x:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_x">
+                    <property name="text">
+                     <string>500.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_y">
+                    <property name="text">
+                     <string>y:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_y">
+                    <property name="text">
+                     <string>350.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_z">
+                    <property name="text">
+                     <string>z:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_z">
+                    <property name="text">
+                     <string>300.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_rx">
+                    <property name="text">
+                     <string>rx:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_rx">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_ry">
+                    <property name="text">
+                     <string>ry:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_ry">
+                    <property name="text">
+                     <string>180.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_normal_rz">
+                    <property name="text">
+                     <string>rz:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_normal_rz">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>
@@ -1040,44 +1664,127 @@
                   <string>Tube 0 Approach Pose</string>
                  </property>
                  <layout class="QHBoxLayout" name="horizontalLayout_4">
-                  <item><widget class="QLabel" name="lbl_tube0_x"><property name="text"><string>x:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_x"><property name="text"><string>300.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_tube0_y"><property name="text"><string>y:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_y"><property name="text"><string>-150.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_tube0_z"><property name="text"><string>z:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_z"><property name="text"><string>300.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_tube0_rx"><property name="text"><string>rx:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_rx"><property name="text"><string>0.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_tube0_ry"><property name="text"><string>ry:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_ry"><property name="text"><string>180.0</string></property></widget></item>
-                  <item><widget class="QLabel" name="lbl_tube0_rz"><property name="text"><string>rz:</string></property></widget></item>
-                  <item><widget class="QLineEdit" name="input_tube0_rz"><property name="text"><string>0.0</string></property></widget></item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_x">
+                    <property name="text">
+                     <string>x:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_x">
+                    <property name="text">
+                     <string>300.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_y">
+                    <property name="text">
+                     <string>y:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_y">
+                    <property name="text">
+                     <string>-150.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_z">
+                    <property name="text">
+                     <string>z:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_z">
+                    <property name="text">
+                     <string>300.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_rx">
+                    <property name="text">
+                     <string>rx:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_rx">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_ry">
+                    <property name="text">
+                     <string>ry:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_ry">
+                    <property name="text">
+                     <string>180.0</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lbl_tube0_rz">
+                    <property name="text">
+                     <string>rz:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="input_tube0_rz">
+                    <property name="text">
+                     <string>0.0</string>
+                    </property>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>
                <item>
                 <spacer name="verticalSpacer">
-                 <property name="orientation"><enum>Qt::Vertical</enum></property>
-                 <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+                 <property name="orientation">
+                  <enum>Qt::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>40</height>
+                  </size>
+                 </property>
                 </spacer>
                </item>
                <item>
                 <widget class="QPushButton" name="btn_apply_params">
-                 <property name="minimumSize"><size><width>0</width><height>50</height></size></property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>50</height>
+                  </size>
+                 </property>
                  <property name="styleSheet">
                   <string>background-color: #4CAF50; color: white; font-size: 16px; font-weight: bold;</string>
                  </property>
                  <property name="text">
-                  <string>💾 파라미터 로봇에 동기화 적용</string>
+                  <string>파라미터 로봇에 동기화 적용</string>
                  </property>
                 </widget>
                </item>
               </layout>
              </widget>
-             <!-- ── 관리자 탭 2: 파라미터 설정 ── -->
              <widget class="QWidget" name="tab_admin_params">
               <attribute name="title">
-               <string>🔧 파라미터 설정</string>
+               <string>파라미터 설정</string>
               </attribute>
               <layout class="QVBoxLayout" name="vl_admin_params">
                <property name="spacing">
@@ -1101,50 +1808,103 @@
                   <string>Vision 파라미터</string>
                  </property>
                  <layout class="QFormLayout" name="formLayout_vision_params">
-                  <property name="horizontalSpacing"><number>20</number></property>
-                  <property name="verticalSpacing"><number>14</number></property>
-                  <property name="leftMargin"><number>20</number></property>
-                  <property name="topMargin"><number>20</number></property>
-                  <property name="rightMargin"><number>20</number></property>
-                  <property name="bottomMargin"><number>20</number></property>
+                  <property name="horizontalSpacing">
+                   <number>20</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>14</number>
+                  </property>
+                  <property name="leftMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>20</number>
+                  </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_publish_rate">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>발행 속도 (Hz):</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>발행 속도 (Hz):</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="0" column="1">
                    <widget class="QLineEdit" name="input_publish_rate">
-                    <property name="minimumSize"><size><width>120</width><height>30</height></size></property>
-                    <property name="text"><string>5.0</string></property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>120</width>
+                      <height>30</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>5.0</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="1" column="0">
                    <widget class="QLabel" name="lbl_jpeg_quality">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>JPEG 품질 (0~100):</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>JPEG 품질 (0~100):</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
                    <widget class="QSpinBox" name="input_jpeg_quality">
-                    <property name="minimumSize"><size><width>120</width><height>30</height></size></property>
-                    <property name="minimum"><number>0</number></property>
-                    <property name="maximum"><number>100</number></property>
-                    <property name="value"><number>80</number></property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>120</width>
+                      <height>30</height>
+                     </size>
+                    </property>
+                    <property name="minimum">
+                     <number>0</number>
+                    </property>
+                    <property name="maximum">
+                     <number>100</number>
+                    </property>
+                    <property name="value">
+                     <number>80</number>
+                    </property>
                    </widget>
                   </item>
                   <item row="2" column="0">
                    <widget class="QLabel" name="lbl_cam_index">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>카메라 인덱스:</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>카메라 인덱스:</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="2" column="1">
                    <widget class="QSpinBox" name="input_cam_index">
-                    <property name="minimumSize"><size><width>120</width><height>30</height></size></property>
-                    <property name="minimum"><number>0</number></property>
-                    <property name="maximum"><number>9</number></property>
-                    <property name="value"><number>0</number></property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>120</width>
+                      <height>30</height>
+                     </size>
+                    </property>
+                    <property name="minimum">
+                     <number>0</number>
+                    </property>
+                    <property name="maximum">
+                     <number>9</number>
+                    </property>
+                    <property name="value">
+                     <number>0</number>
+                    </property>
                    </widget>
                   </item>
                  </layout>
@@ -1156,54 +1916,90 @@
                   <string>시스템 정보</string>
                  </property>
                  <layout class="QFormLayout" name="formLayout_sysinfo">
-                  <property name="horizontalSpacing"><number>20</number></property>
-                  <property name="verticalSpacing"><number>12</number></property>
-                  <property name="leftMargin"><number>20</number></property>
-                  <property name="topMargin"><number>20</number></property>
-                  <property name="rightMargin"><number>20</number></property>
-                  <property name="bottomMargin"><number>20</number></property>
+                  <property name="horizontalSpacing">
+                   <number>20</number>
+                  </property>
+                  <property name="verticalSpacing">
+                   <number>12</number>
+                  </property>
+                  <property name="leftMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>20</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>20</number>
+                  </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="lbl_si_node">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>ROS 노드 이름:</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>ROS 노드 이름:</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="0" column="1">
                    <widget class="QLabel" name="val_si_node">
-                    <property name="text"><string>hmi_node</string></property>
+                    <property name="text">
+                     <string>hmi_node</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="1" column="0">
                    <widget class="QLabel" name="lbl_si_version">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>HMI 버전:</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>HMI 버전:</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
                    <widget class="QLabel" name="val_si_version">
-                    <property name="text"><string>v1.0.0 (2026-06-24)</string></property>
+                    <property name="text">
+                     <string>v1.0.0 (2026-06-24)</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="2" column="0">
                    <widget class="QLabel" name="lbl_si_admin">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>로그인 계정:</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>로그인 계정:</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="2" column="1">
                    <widget class="QLabel" name="val_si_admin">
-                    <property name="text"><string>admin</string></property>
+                    <property name="text">
+                     <string>admin</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="3" column="0">
                    <widget class="QLabel" name="lbl_si_login_time">
-                    <property name="styleSheet"><string>font-weight: bold;</string></property>
-                    <property name="text"><string>로그인 시각:</string></property>
+                    <property name="styleSheet">
+                     <string>font-weight: bold;</string>
+                    </property>
+                    <property name="text">
+                     <string>로그인 시각:</string>
+                    </property>
                    </widget>
                   </item>
                   <item row="3" column="1">
                    <widget class="QLabel" name="val_si_login_time">
-                    <property name="text"><string>--:--:--</string></property>
+                    <property name="text">
+                     <string>--:--:--</string>
+                    </property>
                    </widget>
                   </item>
                  </layout>
@@ -1211,18 +2007,30 @@
                </item>
                <item>
                 <spacer name="spacer_params_mid">
-                 <property name="orientation"><enum>Qt::Vertical</enum></property>
-                 <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+                 <property name="orientation">
+                  <enum>Qt::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>20</height>
+                  </size>
+                 </property>
                 </spacer>
                </item>
                <item>
                 <widget class="QPushButton" name="btn_apply_vision_params">
-                 <property name="minimumSize"><size><width>0</width><height>50</height></size></property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>50</height>
+                  </size>
+                 </property>
                  <property name="styleSheet">
                   <string>background-color: #1565C0; color: white; font-size: 16px; font-weight: bold;</string>
                  </property>
                  <property name="text">
-                  <string>💾 Vision 파라미터 적용</string>
+                  <string>Vision 파라미터 적용</string>
                  </property>
                 </widget>
                </item>
