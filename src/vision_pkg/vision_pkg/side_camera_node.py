@@ -10,6 +10,7 @@ import os
 import cv2
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 
 # 260624 jiwan side_image를 raw Image 대신 JPEG로 압축한 CompressedImage로 전송
 from sensor_msgs.msg import CompressedImage
@@ -94,11 +95,29 @@ class SideCameraNode(Node):
         else:
             self.get_logger().error(f"Unknown source_mode: {self.source_mode}")
 
+        # HMI 해상도 적용 버튼 - "WxH" 문자열로 들어옴 (예: "1280x720")
+        self.create_subscription(String, "/camera/resolution_cmd", self.on_resolution_cmd, 10)
+
         period = 1.0 / publish_rate_hz if publish_rate_hz > 0 else 1.0
         self.timer = self.create_timer(period, self.publish_frame)
         self.get_logger().info(
             f"side_camera_node started (source_mode={self.source_mode}, rate={publish_rate_hz}Hz)"
         )
+
+    def on_resolution_cmd(self, msg: String):
+        try:
+            w_str, h_str = msg.data.lower().split("x")
+            width, height = int(w_str), int(h_str)
+        except ValueError:
+            self.get_logger().warn(f"Invalid resolution_cmd: {msg.data!r} (expected 'WxH')")
+            return
+
+        self.frame_width = width
+        self.frame_height = height
+        if self.source_mode == "device" and self.cap is not None:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.get_logger().info(f"Resolution changed to {width}x{height}")
 
     def publish_frame(self):
         frame = None

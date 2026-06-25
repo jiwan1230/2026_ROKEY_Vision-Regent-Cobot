@@ -46,7 +46,7 @@ from sensor_msgs.msg import CompressedImage
 from ament_index_python.packages import get_package_share_directory
 
 from PyQt5 import uic
-from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -206,6 +206,15 @@ class HMIDashboardApp(QDialog):
             self.node.get_logger().error(f"UI 파일을 찾을 수 없습니다: {ui_path}")
 
         uic.loadUi(ui_path, self)  # 2026-06-24 soo: self.ui(QDialog) 래퍼 제거, 직접 로드
+
+        # QPushButton의 autoDefault는 기본값이 True라서, 어느 탭/페이지에 있든 Enter가
+        # 그 순간 보이는 버튼 하나를 임의로 클릭해버릴 수 있음 (예: 관리자 로그인 중
+        # Enter -> 로그인 성공으로 막 보이게 된 로그아웃 버튼이 같은 키 이벤트에서
+        # 클릭되어 바로 로그아웃되는 버그). Enter는 우리가 명시적으로 연결한 동작
+        # (returnPressed)에만 반응하게, 모든 버튼의 default/autoDefault를 끈다.
+        for btn in self.findChildren(QPushButton):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
 
         # ── 운영 대시보드 탭 버튼 연결 ──────────────────────────────
         self.pushButton.clicked.connect(self.on_start)

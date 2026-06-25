@@ -709,7 +709,7 @@
        </property>
        <widget class="QWidget" name="robo_tcontrol_log">
         <attribute name="title">
-         <string>Tab 1</string>
+         <string>Robot Control Log</string>
         </attribute>
         <widget class="QGroupBox" name="groupBox_5">
          <property name="geometry">
@@ -737,7 +737,7 @@
        </widget>
        <widget class="QWidget" name="tab_2">
         <attribute name="title">
-         <string>Tab 2</string>
+         <string>Vision Log</string>
         </attribute>
        </widget>
       </widget>
