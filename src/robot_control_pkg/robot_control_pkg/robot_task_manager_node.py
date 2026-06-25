@@ -170,13 +170,13 @@ class RobotTaskManagerNode(Node):
     # end
 
     def grip(self, command):
+        self._check_stop()
         result = self._call_sync(self.gripper_client, GripperControl.Request(command=command))
         return result.success
 
     def grip_with_retry(self, command):
         self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
         for attempt in range(self.grip_retry_count + 1):
-            self._check_stop()
             if self.grip(command):
                 return True
             self.get_logger().warn(f"Gripper {command} failed, attempt {attempt + 1}")
