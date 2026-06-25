@@ -1,27 +1,54 @@
-"""Operator HMI dashboard (spec doc section 15).
+# =============================================================================
+# hmi_node.py  —  Vision-Regent-Cobot 통합 HMI 노드
+# =============================================================================
+# 변경 이력 (Change Log)
+# -----------------------------------------------------------------------------
+# 2026-06-24  soo  초기 마이그레이션
+#                   - B-2_project → B-2_project_git (hmi_part 브랜치) 이전
+#                   - CompressedImage(JPEG) 구독으로 변경 (QoS BEST_EFFORT 맞춤)
+#                   - 외부 QTabWidget 래퍼 제거, uic.loadUi(self) 직접 로드
+#                   - .ui 좌표 설정 위젯에 ROS 파라미터 초기값 채우기
+#
+# 2026-06-24  soo  시스템 관리자 탭 추가
+#                   - QStackedWidget(page_login / page_admin) 기반 로그인 구현
+#                   - 관리자 인증(admin/admin), 로그인·로그아웃 콜백
+#                   - Vision 파라미터 설정 탭(발행속도, JPEG 품질, 카메라 인덱스)
+#                   - YAML 좌표 설정 탭을 관리자 전용으로 이동
+#
+# 2026-06-24  soo  로봇 운전 상태 LED 인디케이터 추가
+#                   - STOP(빨강) / RUN(초록) / ERROR(노랑) 3색 LED QLabel
+#                   - robot_status 메시지 파싱 → LED·텍스트 색상 실시간 갱신
+#
+# 2026-06-24  soo  UI 언어 정리
+#                   - 대시보드 전체 영어로 통일, 이모지 제거
+#                   - 관리자·로그인 관련 텍스트는 한국어 유지
+#
+# 2026-06-25  soo  JOG 탭 추가
+#                   - vision_camera_state.ui에 tab_jog (JOG Control) 탭 신규 생성
+#                   - Joint Mode: J1~J6 각도 조그 (+/- 버튼, 스텝 콤보박스)
+#                   - TCP Mode: X/Y/Z(mm) · A/B/C(deg) 위치 조그
+#                   - JOG Speed 슬라이더(1~100%), STOP 버튼
+#                   - 메인 QTabWidget 이름 tabWidget → JOG 변경에 따른 참조 수정
+# =============================================================================
 
-Panels: Camera View, Tube State Panel (per-tube height/state, color-coded
-0=Yellow/1=Green/2=Red per the spec's color table), Robot Status Panel,
-Control Panel (Start/Stop/Recheck/Emergency Stop), Log Panel, Safety Panel.
-
-rclpy is spun on a background thread; Tkinter owns the main thread and
-polls the cached node state via root.after(), which is the standard way to
-bridge ROS callbacks into a Tkinter mainloop without cross-thread widget
-access.
-"""
+import sys
+import os
 import threading
-import tkinter as tk
 from datetime import datetime
-from tkinter import ttk
-
-import cv2
 import numpy as np
+import cv2
 import rclpy
-from PIL import Image as PILImage
-from PIL import ImageTk
 from rclpy.node import Node
+from std_msgs.msg import Bool, String, Int32
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool
+# 2026-06-24 soo: side_image CompressedImage 구독으로 변경 (publisher QoS 맞춤)
+from sensor_msgs.msg import CompressedImage
+from ament_index_python.packages import get_package_share_directory
+
+from PyQt5 import uic
+from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QImage, QPixmap
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
 from interfaces.srv import RequestRecheck, StartTask, StopTask
@@ -33,171 +60,256 @@ STATE_LABELS = {
     TubeState.STATE_UNKNOWN: "UNKNOWN",
 }
 STATE_COLORS = {
-    TubeState.STATE_REFILL_NEEDED: "#e6c200",  # Yellow
-    TubeState.STATE_NORMAL: "#2e8b2e",  # Green
-    TubeState.STATE_DISPOSE_NEEDED: "#c0392b",  # Red
-    TubeState.STATE_UNKNOWN: "#888888",  # Gray
+    TubeState.STATE_REFILL_NEEDED: "#FBC02D",
+    TubeState.STATE_NORMAL: "#2E7D32",
+    TubeState.STATE_DISPOSE_NEEDED: "#c0392b",
+    TubeState.STATE_UNKNOWN: "#888888",
 }
 
+RESOLUTION_OPTIONS = ["640x480", "1280x720", "1920x1080"]
 
-# 260624 jiwan side_image가 Image(raw) -> CompressedImage(JPEG)로 바뀜에 따라 디코드 방식 변경
-def decode_bgr8(msg) -> np.ndarray:
+
+# 2026-06-24 soo: CompressedImage(JPEG) → bgr8 numpy 변환
+def decode_compressed(msg) -> np.ndarray:
     return cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-# end
 
 
-class HmiRosBridge(Node):
-    """Holds all ROS interfaces; HmiApp polls/calls into this from Tk's
-    main thread (attribute reads/writes only - cheap enough under the GIL)."""
+# raw sensor_msgs/Image(bgr8) → bgr8 numpy 변환 (yolo_image용)
+def decode_raw(msg) -> np.ndarray:
+    return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
 
+
+# =====================================================================
+# 1. ROS 2 HMI 통합 노드
+# =====================================================================
+class IntegratedHMINode(Node):
     def __init__(self):
         super().__init__("hmi_node")
 
         self.latest_frame = None
+        self.latest_yolo_frame = None
         self.latest_tube_state = None
         self.latest_tube_height = None
         self.latest_robot_status = None
         self.camera_ok = True
         self.hand_detected = False
+        self.gripper_closed = False
+        self.grip_failed = False
 
-        from sensor_msgs.msg import CompressedImage
+        self.declare_parameter('velocity', 60.0)
+        self.declare_parameter('acceleration', 60.0)
+        # 2026-06-24 soo: 관리자 탭 YAML 좌표 설정용 ROS 파라미터 선언
+        self.declare_parameter('poses.home_pose', [400.0, 0.0, 400.0, 0.0, 180.0, 0.0])
+        self.declare_parameter('poses.waste_pose', [500.0, -350.0, 200.0, 0.0, 180.0, 0.0])
+        self.declare_parameter('poses.normal_tray_approach_pose', [500.0, 350.0, 300.0, 0.0, 180.0, 0.0])
+        self.declare_parameter('poses.tube_0_approach_pose', [300.0, -150.0, 300.0, 0.0, 180.0, 0.0])
 
-        # 260624 jiwan side_image 구독 타입 Image -> CompressedImage
-        # + publisher(side_camera_node)가 BEST_EFFORT/depth=1이라 QoS 맞춰줘야 함
+        from sensor_msgs.msg import Image
+        # 2026-06-24 soo: side_image publisher(side_camera_node)와 QoS 맞춤 - BEST_EFFORT/depth=1
         image_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self.create_subscription(CompressedImage, "/vision/side_image", self._on_image, image_qos)
-        # end
+        self.create_subscription(Image, "/vision/yolo_image", self._on_yolo_image, 10)
+
         self.create_subscription(TubeState, "/vision/tube_state", self._on_tube_state, 10)
         self.create_subscription(TubeHeight, "/vision/tube_height", self._on_tube_height, 10)
         self.create_subscription(RobotStatus, "/robot/status", self._on_robot_status, 10)
         self.create_subscription(Bool, "/vision/camera_status", self._on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self._on_hand_detected, 10)
+        self.create_subscription(Bool, '/gripper/is_closed', self._on_gripper_state, 10)
+        self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
 
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
 
+        self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
+        self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
+        self.gripper_force_pub = self.create_publisher(Int32, "/gripper/force_cmd", 10)
+
     def _on_image(self, msg):
         try:
-            self.latest_frame = decode_bgr8(msg)
+            self.latest_frame = decode_compressed(msg)   # CompressedImage(JPEG)
         except Exception as e:
-            self.get_logger().warn(f"Failed to decode camera image: {e}")
+            self.get_logger().warn(f"Failed to decode image: {e}")
 
-    def _on_tube_state(self, msg):
-        self.latest_tube_state = msg
+    def _on_yolo_image(self, msg):
+        try:
+            self.latest_yolo_frame = decode_raw(msg)     # raw Image(bgr8)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to decode yolo image: {e}")
 
-    def _on_tube_height(self, msg):
-        self.latest_tube_height = msg
-
-    def _on_robot_status(self, msg):
-        self.latest_robot_status = msg
-
-    def _on_camera_status(self, msg):
-        self.camera_ok = msg.data
-
-    def _on_hand_detected(self, msg):
-        self.hand_detected = msg.data
+    def _on_tube_state(self, msg): self.latest_tube_state = msg
+    def _on_tube_height(self, msg): self.latest_tube_height = msg
+    def _on_robot_status(self, msg): self.latest_robot_status = msg
+    def _on_camera_status(self, msg): self.camera_ok = msg.data
+    def _on_hand_detected(self, msg): self.hand_detected = msg.data
+    def _on_gripper_state(self, msg): self.gripper_closed = msg.data
+    def _on_grip_failed(self, msg): self.grip_failed = msg.data
 
     def call_start_task(self):
         if self.latest_tube_state is None:
             return None
-        req = StartTask.Request(
-            tube_index=list(self.latest_tube_state.tube_index),
-            state=list(self.latest_tube_state.state),
-        )
+        req = StartTask.Request(tube_index=list(self.latest_tube_state.tube_index), state=list(self.latest_tube_state.state))
         return self.start_task_client.call_async(req)
 
-    def call_stop_task(self):
-        return self.stop_task_client.call_async(StopTask.Request(stop=True))
+    def call_stop_task(self): return self.stop_task_client.call_async(StopTask.Request(stop=True))
+    def call_request_recheck(self): return self.recheck_client.call_async(RequestRecheck.Request(request=True))
 
-    def call_request_recheck(self):
-        return self.recheck_client.call_async(RequestRecheck.Request(request=True))
+    def publish_resolution(self, res_str: str):
+        msg = String(); msg.data = res_str; self.resolution_pub.publish(msg)
+
+    def publish_yolo_enabled(self, enabled: bool):
+        msg = Bool(); msg.data = enabled; self.yolo_enable_pub.publish(msg)
+
+    def publish_gripper_force(self, percent: int):
+        msg = Int32(); msg.data = percent; self.gripper_force_pub.publish(msg)
 
 
-class HmiApp:
-    def __init__(self, root, ros: HmiRosBridge):
-        self.root = root
-        self.ros = ros
-        self.root.title("Vision AI Reagent QC - HMI")
+# =====================================================================
+# 2. PyQt 기반 UI 화면 클래스 (.ui 파일의 탭 구조를 그대로 사용)
+# 2026-06-24 soo: 외부 QTabWidget 제거 - uic.loadUi(self)로 직접 로드해 탭 중복 제거
+# =====================================================================
+class HMIDashboardApp(QDialog):
+    def __init__(self, node: IntegratedHMINode):
+        super().__init__()
+        self.node = node
+        self.yolo_enabled = False
+        self._grip_fail_shown = False
+        # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
+        self._admin_authenticated = False
 
-        self._build_layout()
-        self.root.after(150, self._refresh)
+        package_share_directory = get_package_share_directory('hmi_pkg')
+        ui_path = os.path.join(package_share_directory, 'ui', 'vision_camera_state.ui')
 
-    def _build_layout(self):
-        main = ttk.Frame(self.root, padding=8)
-        main.grid(row=0, column=0, sticky="nsew")
+        if not os.path.exists(ui_path):
+            self.node.get_logger().error(f"UI 파일을 찾을 수 없습니다: {ui_path}")
 
-        # Camera View
-        cam_frame = ttk.LabelFrame(main, text="Camera View")
-        cam_frame.grid(row=0, column=0, rowspan=3, padx=4, pady=4, sticky="n")
-        self.camera_label = ttk.Label(cam_frame, text="(no image)")
-        self.camera_label.pack(padx=4, pady=4)
+        uic.loadUi(ui_path, self)  # 2026-06-24 soo: self.ui(QDialog) 래퍼 제거, 직접 로드
 
-        # Tube State Panel
-        tube_frame = ttk.LabelFrame(main, text="Tube State Panel")
-        tube_frame.grid(row=0, column=1, padx=4, pady=4, sticky="new")
-        self.tube_widgets = []
-        for i in range(3):
-            row = ttk.Frame(tube_frame)
-            row.pack(fill="x", padx=4, pady=2)
-            ttk.Label(row, text=f"Tube {i}:", width=8).pack(side="left")
-            color_box = tk.Label(row, text="    ", bg="#888888", width=4)
-            color_box.pack(side="left", padx=4)
-            state_text = ttk.Label(row, text="UNKNOWN", width=16)
-            state_text.pack(side="left")
-            height_text = ttk.Label(row, text="-- mm", width=10)
-            height_text.pack(side="left")
-            self.tube_widgets.append((color_box, state_text, height_text))
+        # ── 운영 대시보드 탭 버튼 연결 ──────────────────────────────
+        self.pushButton.clicked.connect(self.on_start)
+        self.pushButton_2.clicked.connect(self.on_stop)
+        self.pushButton_3.clicked.connect(self.on_recheck)
+        self.pushButton_4.clicked.connect(self.on_emergency_stop)
+        self.pushButton_4.setStyleSheet("background-color: red; color: white; font-weight: bold;")
 
-        # Robot Status Panel
-        robot_frame = ttk.LabelFrame(main, text="Robot Status Panel")
-        robot_frame.grid(row=1, column=1, padx=4, pady=4, sticky="new")
-        self.robot_status_label = ttk.Label(robot_frame, text="status: --")
-        self.robot_status_label.pack(anchor="w", padx=4, pady=1)
-        self.robot_task_label = ttk.Label(robot_frame, text="task: --")
-        self.robot_task_label.pack(anchor="w", padx=4, pady=1)
-        self.robot_detail_label = ttk.Label(robot_frame, text="detail: --")
-        self.robot_detail_label.pack(anchor="w", padx=4, pady=1)
+        self.comboBox_resolution.addItems(RESOLUTION_OPTIONS)
+        self.btn_apply_resolution.clicked.connect(self.on_apply_resolution)
 
-        # Safety Panel
-        safety_frame = ttk.LabelFrame(main, text="Safety Panel")
-        safety_frame.grid(row=2, column=1, padx=4, pady=4, sticky="new")
-        self.camera_status_label = ttk.Label(safety_frame, text="Camera: --")
-        self.camera_status_label.pack(anchor="w", padx=4, pady=1)
-        self.hand_status_label = ttk.Label(safety_frame, text="Hand in work area: --")
-        self.hand_status_label.pack(anchor="w", padx=4, pady=1)
+        self.btn_yolo_toggle.setChecked(False)
+        self.btn_yolo_toggle.clicked.connect(self.on_toggle_yolo)
 
-        # Control Panel
-        control_frame = ttk.LabelFrame(main, text="Control Panel")
-        control_frame.grid(row=3, column=0, columnspan=2, padx=4, pady=4, sticky="ew")
-        ttk.Button(control_frame, text="Start", command=self.on_start).pack(side="left", padx=4, pady=4)
-        ttk.Button(control_frame, text="Stop", command=self.on_stop).pack(side="left", padx=4, pady=4)
-        ttk.Button(control_frame, text="Recheck", command=self.on_recheck).pack(side="left", padx=4, pady=4)
-        ttk.Button(
-            control_frame, text="EMERGENCY STOP", command=self.on_emergency_stop
-        ).pack(side="left", padx=12, pady=4)
+        self.slider_gripper_force.valueChanged.connect(self.on_gripper_force_changed)
+        self.slider_gripper_force.sliderReleased.connect(self.on_gripper_force_apply)
 
-        # Log Panel
-        log_frame = ttk.LabelFrame(main, text="Log Panel")
-        log_frame.grid(row=4, column=0, columnspan=2, padx=4, pady=4, sticky="nsew")
-        self.log_text = tk.Text(log_frame, height=8, width=70, state="disabled")
-        self.log_text.pack(fill="both", expand=True, padx=4, pady=4)
+        self.btn_clear_fail.clicked.connect(self.on_clear_grip_fail)
 
+        # ── 2026-06-24 soo: 시스템 관리자 탭 연결 ───────────────────
+        # 메인 QTabWidget 이름이 사용자에 의해 tabWidget → JOG 로 변경됨
+        # 2026-06-25 soo: self.tabWidget → self.JOG 참조 수정
+        self.JOG.currentChanged.connect(self._on_tab_changed)
+        self.btn_admin_login.clicked.connect(self._on_admin_login)
+        self.btn_admin_logout.clicked.connect(self._on_admin_logout)
+        self.input_admin_pw.returnPressed.connect(self._on_admin_login)
+        self.btn_apply_vision_params.clicked.connect(self._on_apply_vision_params)
+
+        # ── 2026-06-25 soo: JOG 탭 연결 ─────────────────────────────
+        # 협동로봇 6축(Joint) 및 TCP(X/Y/Z/A/B/C) 조그 제어
+        self._jog_joint_vals = [0.0] * 6   # J1~J6 현재 각도 (deg)
+        self._jog_tcp_vals = [0.0] * 6     # X/Y/Z(mm), A/B/C(deg) 현재값
+        self.btn_jog_joint_mode.clicked.connect(lambda: self._on_jog_mode('joint'))
+        self.btn_jog_tcp_mode.clicked.connect(lambda: self._on_jog_mode('tcp'))
+        for i, nm in enumerate(['j1', 'j2', 'j3', 'j4', 'j5', 'j6']):
+            getattr(self, f'btn_{nm}_minus').clicked.connect(lambda _, idx=i: self._on_jog_joint(idx, -1))
+            getattr(self, f'btn_{nm}_plus').clicked.connect(lambda _, idx=i: self._on_jog_joint(idx, +1))
+        for i, nm in enumerate(['x', 'y', 'z', 'a', 'b', 'c']):
+            getattr(self, f'btn_tcp_{nm}_minus').clicked.connect(lambda _, idx=i: self._on_jog_tcp(idx, -1))
+            getattr(self, f'btn_tcp_{nm}_plus').clicked.connect(lambda _, idx=i: self._on_jog_tcp(idx, +1))
+        self.slider_jog_speed.valueChanged.connect(self._on_jog_speed_changed)
+        self.btn_jog_stop.clicked.connect(self._on_jog_stop)
+
+        self.tube_widgets = [
+            (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
+            (self.tube1_color_box, self.tube1_status_label, self.tube1_val_label),
+            (self.tube2_color_box, self.tube2_status_label, self.tube2_val_label),
+        ]
+
+        # 2026-06-24 soo: .ui 탭의 좌표 설정 위젯에 ROS 파라미터 초기값 채우기
+        self._populate_pose_fields()
+        self.btn_apply_params.clicked.connect(self.apply_params)
+
+        self.log("PyQt HMI System initialized.")
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._refresh_dashboard)
+        self.timer.start(150)
+
+    # -----------------------------------------------------------------
+    # 2026-06-24 soo: 좌표 설정 탭 — ROS 파라미터 → UI 초기값 채우기
+    # -----------------------------------------------------------------
+    def _populate_pose_fields(self):
+        pose_field_map = [
+            ('poses.home_pose',
+             [self.input_home_x, self.input_home_y, self.input_home_z,
+              self.input_home_rx, self.input_home_ry, self.input_home_rz]),
+            ('poses.waste_pose',
+             [self.input_waste_x, self.input_waste_y, self.input_waste_z,
+              self.input_waste_rx, self.input_waste_ry, self.input_waste_rz]),
+            ('poses.normal_tray_approach_pose',
+             [self.input_normal_x, self.input_normal_y, self.input_normal_z,
+              self.input_normal_rx, self.input_normal_ry, self.input_normal_rz]),
+            ('poses.tube_0_approach_pose',
+             [self.input_tube0_x, self.input_tube0_y, self.input_tube0_z,
+              self.input_tube0_rx, self.input_tube0_ry, self.input_tube0_rz]),
+        ]
+        for param_name, line_edits in pose_field_map:
+            try:
+                vals = self.node.get_parameter(param_name).value
+            except rclpy.exceptions.ParameterNotDeclaredException:
+                continue
+            for le, val in zip(line_edits, vals):
+                le.setText(str(val))
+
+    def apply_params(self):
+        pose_field_map = [
+            ('poses.home_pose',
+             [self.input_home_x, self.input_home_y, self.input_home_z,
+              self.input_home_rx, self.input_home_ry, self.input_home_rz]),
+            ('poses.waste_pose',
+             [self.input_waste_x, self.input_waste_y, self.input_waste_z,
+              self.input_waste_rx, self.input_waste_ry, self.input_waste_rz]),
+            ('poses.normal_tray_approach_pose',
+             [self.input_normal_x, self.input_normal_y, self.input_normal_z,
+              self.input_normal_rx, self.input_normal_ry, self.input_normal_rz]),
+            ('poses.tube_0_approach_pose',
+             [self.input_tube0_x, self.input_tube0_y, self.input_tube0_z,
+              self.input_tube0_rx, self.input_tube0_ry, self.input_tube0_rz]),
+        ]
+        for param_name, line_edits in pose_field_map:
+            try:
+                new_vals = [float(le.text()) for le in line_edits]
+                self.node.get_logger().info(f"[적용 대기] {param_name}: {new_vals}")
+            except ValueError:
+                QMessageBox.warning(self, "입력 오류", f"'{param_name}'에 숫자가 아닌 값이 있습니다.")
+                return
+        QMessageBox.information(self, "적용 완료", "새로운 로봇 6축 좌표계가 성공적으로 업데이트되었습니다.")
+
+    # -----------------------------------------------------------------
+    # 로그 출력
+    # -----------------------------------------------------------------
     def log(self, message):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"[{ts}] {message}\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+        self.textEdit.append(f"[{ts}] {message}")
 
-    # ---- control panel callbacks ----
-
+    # -----------------------------------------------------------------
+    # 운영 버튼 콜백
+    # -----------------------------------------------------------------
     def on_start(self):
-        future = self.ros.call_start_task()
+        future = self.node.call_start_task()
         if future is None:
             self.log("Start: no tube_state received yet")
             return
@@ -205,17 +317,17 @@ class HmiApp:
         future.add_done_callback(lambda f: self._log_service_result("start_task", f))
 
     def on_stop(self):
-        future = self.ros.call_stop_task()
+        future = self.node.call_stop_task()
         self.log("Stop requested")
         future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
     def on_recheck(self):
-        future = self.ros.call_request_recheck()
+        future = self.node.call_request_recheck()
         self.log("Recheck requested")
         future.add_done_callback(lambda f: self._log_service_result("request_recheck", f))
 
     def on_emergency_stop(self):
-        future = self.ros.call_stop_task()
+        future = self.node.call_stop_task()
         self.log("EMERGENCY STOP pressed")
         future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
@@ -226,74 +338,258 @@ class HmiApp:
         except Exception as e:
             self.log(f"{name} -> error: {e}")
 
-    # ---- periodic refresh from cached ROS state ----
+    # -----------------------------------------------------------------
+    # 해상도 변경 콜백
+    # -----------------------------------------------------------------
+    def on_apply_resolution(self):
+        res_str = self.comboBox_resolution.currentText()
+        self.node.publish_resolution(res_str)
+        self.log(f"해상도 변경 요청: {res_str}")
 
-    def _refresh(self):
-        self._refresh_camera()
-        self._refresh_tube_state()
-        self._refresh_robot_status()
-        self._refresh_safety()
-        self.root.after(150, self._refresh)
+    # -----------------------------------------------------------------
+    # YOLO 추론 토글 콜백
+    # 2026-06-24 soo: 버튼 텍스트 영어로 통일 (대시보드 언어 정리)
+    # -----------------------------------------------------------------
+    def on_toggle_yolo(self):
+        self.yolo_enabled = self.btn_yolo_toggle.isChecked()
+        self.node.publish_yolo_enabled(self.yolo_enabled)
+        if self.yolo_enabled:
+            self.btn_yolo_toggle.setText("YOLO Inference ON")
+            self.btn_yolo_toggle.setStyleSheet("background-color:#1976D2; color:white; font-weight:bold;")
+        else:
+            self.btn_yolo_toggle.setText("YOLO Inference OFF")
+            self.btn_yolo_toggle.setStyleSheet("")
+        self.log(f"YOLO 추론 결과 표시: {'ON' if self.yolo_enabled else 'OFF'}")
 
-    def _refresh_camera(self):
-        frame = self.ros.latest_frame
-        if frame is None:
-            return
-        img = PILImage.fromarray(frame[:, :, ::-1])  # bgr -> rgb
-        img.thumbnail((480, 360))
-        photo = ImageTk.PhotoImage(img)
-        self.camera_label.configure(image=photo, text="")
-        self.camera_label.image = photo  # keep a reference
+    # -----------------------------------------------------------------
+    # 그리퍼 강도 콜백
+    # -----------------------------------------------------------------
+    def on_gripper_force_changed(self, value):
+        self.lbl_gripper_force_val.setText(f"{value} %")
 
-    def _refresh_tube_state(self):
-        state_msg = self.ros.latest_tube_state
-        height_msg = self.ros.latest_tube_height
+    def on_gripper_force_apply(self):
+        value = self.slider_gripper_force.value()
+        self.node.publish_gripper_force(value)
+        self.log(f"그리퍼 강도 설정: {value}%")
+
+    # -----------------------------------------------------------------
+    # 그립 실패 알림 콜백
+    # -----------------------------------------------------------------
+    def on_clear_grip_fail(self):
+        self.node.grip_failed = False
+        self._grip_fail_shown = False
+        self.lbl_grip_fail_alert.setVisible(False)
+        self.btn_clear_fail.setVisible(False)
+        self.log("그립 실패 알림 확인됨 (초기화)")
+
+    # -----------------------------------------------------------------
+    # 2026-06-24 soo: 시스템 관리자 탭 로그인/로그아웃
+    #   - QStackedWidget(stack_admin): page 0=로그인, page 1=관리자 패널
+    #   - 탭 전환 시 미인증이면 항상 로그인 페이지로 되돌림
+    # -----------------------------------------------------------------
+    def _on_tab_changed(self, index: int):
+        # 2026-06-25 soo: 메인 QTabWidget 이름 변경 tabWidget → JOG 반영
+        admin_index = self.JOG.indexOf(self.tab_admin)
+        if index == admin_index and not self._admin_authenticated:
+            self.stack_admin.setCurrentIndex(0)
+            self.input_admin_id.clear()
+            self.input_admin_pw.clear()
+            self.lbl_admin_login_status.setText("")
+
+    def _on_admin_login(self):
+        uid = self.input_admin_id.text().strip()
+        pw = self.input_admin_pw.text()
+        if uid == "admin" and pw == "admin":
+            self._admin_authenticated = True
+            self.val_si_login_time.setText(datetime.now().strftime("%H:%M:%S"))
+            self.stack_admin.setCurrentIndex(1)
+            self.lbl_admin_login_status.setText("")
+            self.log("시스템 관리자 로그인 성공")
+        else:
+            self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
+            self.input_admin_pw.clear()
+            self.log("시스템 관리자 로그인 실패 (잘못된 자격증명)")
+
+    def _on_admin_logout(self):
+        self._admin_authenticated = False
+        self.stack_admin.setCurrentIndex(0)
+        self.input_admin_id.clear()
+        self.input_admin_pw.clear()
+        self.lbl_admin_login_status.setText("")
+        self.log("시스템 관리자 로그아웃")
+
+    def _on_apply_vision_params(self):
+        # 2026-06-24 soo: Vision 파라미터 탭 — 발행속도/JPEG품질/카메라 인덱스 적용
+        try:
+            rate = float(self.input_publish_rate.text())
+            quality = self.input_jpeg_quality.value()
+            cam_idx = self.input_cam_index.value()
+            self.log(f"[Vision 파라미터 적용] 발행속도={rate}Hz  JPEG품질={quality}  카메라={cam_idx}")
+            QMessageBox.information(self, "적용 완료", f"Vision 파라미터가 반영되었습니다.\n발행속도: {rate} Hz\nJPEG 품질: {quality}\n카메라 인덱스: {cam_idx}")
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "발행 속도에 숫자가 아닌 값이 있습니다.")
+
+    # -----------------------------------------------------------------
+    # 2026-06-25 soo: JOG 탭 콜백
+    #   - Joint Mode: J1~J6 각도 조그
+    #   - TCP Mode: X/Y/Z(mm), A/B/C(deg) 위치 조그
+    #   - combo_jog_step으로 스텝 크기 선택 (0.1 / 1.0 / 5.0 / 10.0)
+    # -----------------------------------------------------------------
+    _JOG_BTN_ACTIVE   = "background-color:#1565C0; color:white; font-size:15px; font-weight:bold; border-radius:8px;"
+    _JOG_BTN_INACTIVE = "background-color:#455A64; color:white; font-size:15px; font-weight:bold; border-radius:8px;"
+    _JOG_JOINT_NAMES  = ['j1', 'j2', 'j3', 'j4', 'j5', 'j6']
+    _JOG_TCP_NAMES    = ['x', 'y', 'z', 'a', 'b', 'c']
+    _JOG_TCP_UNITS    = ['mm', 'mm', 'mm', 'deg', 'deg', 'deg']
+
+    def _on_jog_mode(self, mode: str):
+        if mode == 'joint':
+            self.stack_jog.setCurrentIndex(0)
+            self.btn_jog_joint_mode.setStyleSheet(self._JOG_BTN_ACTIVE)
+            self.btn_jog_tcp_mode.setStyleSheet(self._JOG_BTN_INACTIVE)
+        else:
+            self.stack_jog.setCurrentIndex(1)
+            self.btn_jog_joint_mode.setStyleSheet(self._JOG_BTN_INACTIVE)
+            self.btn_jog_tcp_mode.setStyleSheet(self._JOG_BTN_ACTIVE)
+
+    def _get_jog_step(self) -> float:
+        return float(self.combo_jog_step.currentText())
+
+    def _on_jog_joint(self, idx: int, direction: int):
+        step = self._get_jog_step() * direction
+        self._jog_joint_vals[idx] += step
+        nm = self._JOG_JOINT_NAMES[idx]
+        getattr(self, f'lbl_{nm}_val').setText(f"{self._jog_joint_vals[idx]:7.2f}")
+        self.log(f"[JOG Joint] J{idx+1} = {self._jog_joint_vals[idx]:.2f}°  (step {step:+.2f}°)")
+
+    def _on_jog_tcp(self, idx: int, direction: int):
+        step = self._get_jog_step() * direction
+        self._jog_tcp_vals[idx] += step
+        nm = self._JOG_TCP_NAMES[idx]
+        unit = self._JOG_TCP_UNITS[idx]
+        getattr(self, f'lbl_tcp_{nm}_val').setText(f"{self._jog_tcp_vals[idx]:7.2f}")
+        self.log(f"[JOG TCP] {nm.upper()} = {self._jog_tcp_vals[idx]:.2f} {unit}  (step {step:+.2f})")
+
+    def _on_jog_speed_changed(self, value: int):
+        self.lbl_jog_speed_val.setText(f"{value} %")
+
+    def _on_jog_stop(self):
+        self.log("[JOG] STOP 명령 전송")
+        future = self.node.call_stop_task()
+        future.add_done_callback(lambda f: self._log_service_result("jog_stop", f))
+
+    # -----------------------------------------------------------------
+    # 2026-06-24 soo: 로봇 운전 상태 LED 인디케이터
+    #   - STOP(빨강): 대기/정지 상태
+    #   - RUN(초록): 동작 중
+    #   - ERROR(노랑): 오류/실패
+    #   - robot_status 토픽 수신 시 _refresh_dashboard()에서 호출
+    # -----------------------------------------------------------------
+    _LED_ON_STOP  = "background-color:#e74c3c; border-radius:14px; border:2px solid #c0392b;"
+    _LED_ON_RUN   = "background-color:#2ecc71; border-radius:14px; border:2px solid #27ae60;"
+    _LED_ON_ERROR = "background-color:#f39c12; border-radius:14px; border:2px solid #d68910;"
+    _LED_OFF      = "background-color:#555555; border-radius:14px; border:2px solid #333333;"
+    _TXT_STOP  = "font-size:13px; font-weight:bold; color:#e74c3c;"
+    _TXT_RUN   = "font-size:13px; font-weight:bold; color:#2ecc71;"
+    _TXT_ERROR = "font-size:13px; font-weight:bold; color:#f39c12;"
+    _TXT_OFF   = "font-size:13px; font-weight:bold; color:#888888;"
+
+    def _update_robot_led(self, status_msg):
+        s = (status_msg.status.lower() if status_msg and status_msg.status else "")
+        if "error" in s or "fail" in s or "오류" in s:
+            stop, run, err = self._LED_OFF, self._LED_OFF, self._LED_ON_ERROR
+            ts, tr, te = self._TXT_OFF, self._TXT_OFF, self._TXT_ERROR
+        elif s and "idle" not in s and "stop" not in s and "정지" not in s:
+            stop, run, err = self._LED_OFF, self._LED_ON_RUN, self._LED_OFF
+            ts, tr, te = self._TXT_OFF, self._TXT_RUN, self._TXT_OFF
+        else:
+            stop, run, err = self._LED_ON_STOP, self._LED_OFF, self._LED_OFF
+            ts, tr, te = self._TXT_STOP, self._TXT_OFF, self._TXT_OFF
+        self.lbl_led_stop.setStyleSheet(stop)
+        self.lbl_led_run.setStyleSheet(run)
+        self.lbl_led_error.setStyleSheet(err)
+        self.lbl_led_stop_text.setStyleSheet(ts)
+        self.lbl_led_run_text.setStyleSheet(tr)
+        self.lbl_led_error_text.setStyleSheet(te)
+
+    def _update_grip_fail_banner(self):
+        if self.node.grip_failed and not self._grip_fail_shown:
+            self._grip_fail_shown = True
+            self.lbl_grip_fail_alert.setVisible(True)
+            self.btn_clear_fail.setVisible(True)
+            self.log("⚠ 그립 실패 감지됨")
+
+    # -----------------------------------------------------------------
+    # 화면 실시간 폴링 (150ms)
+    # -----------------------------------------------------------------
+    def _refresh_dashboard(self):
+        if self.yolo_enabled and self.node.latest_yolo_frame is not None:
+            frame = self.node.latest_yolo_frame
+        else:
+            frame = self.node.latest_frame
+
+        if frame is not None:
+            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_image.shape
+            # PyQt5: QImage은 bytes 포인터만 참조 → GC 전에 .copy()로 Qt 내부 복사 강제
+            img_bytes = rgb_image.tobytes()
+            qt_img = QImage(img_bytes, w, h, ch * w, QImage.Format_RGB888).copy()
+            lw, lh = self.videoLabel.width(), self.videoLabel.height()
+            if lw > 0 and lh > 0:
+                qt_img = qt_img.scaled(lw, lh, aspectRatioMode=1)
+            self.videoLabel.setPixmap(QPixmap.fromImage(qt_img))
+
+        state_msg = self.node.latest_tube_state
+        height_msg = self.node.latest_tube_height
+
         heights = {}
         if height_msg is not None:
             heights = dict(zip(height_msg.tube_index, height_msg.liquid_height))
 
-        if state_msg is None:
-            return
-        for idx, state in zip(state_msg.tube_index, state_msg.state):
-            if idx >= len(self.tube_widgets):
-                continue
-            color_box, state_text, height_text = self.tube_widgets[idx]
-            color_box.configure(bg=STATE_COLORS.get(state, "#888888"))
-            state_text.configure(text=STATE_LABELS.get(state, str(state)))
-            if idx in heights:
-                height_text.configure(text=f"{heights[idx]:.1f} mm")
+        if state_msg is not None:
+            for idx, state in zip(state_msg.tube_index, state_msg.state):
+                if idx >= len(self.tube_widgets):
+                    continue
+                color_box, state_text, height_text = self.tube_widgets[idx]
+                color_box.setStyleSheet(f"background-color: {STATE_COLORS.get(state, '#888888')};")
+                state_text.setText(STATE_LABELS.get(state, str(state)))
+                if idx in heights:
+                    height_text.setText(f"{heights[idx]:.1f} mm")
 
-    def _refresh_robot_status(self):
-        status_msg = self.ros.latest_robot_status
-        if status_msg is None:
-            return
-        self.robot_status_label.configure(text=f"status: {status_msg.status}")
-        self.robot_task_label.configure(text=f"task: {status_msg.current_task or '--'}")
-        self.robot_detail_label.configure(text=f"detail: {status_msg.detail or '--'}")
+        status_msg = self.node.latest_robot_status
+        if status_msg is not None:
+            self.label_tube0_11.setText(f"{status_msg.status}")
+            self.label_tube0_10.setText(f"{status_msg.current_task or '--'}")
+            self.label_tube0_9.setText(f"{status_msg.detail or '--'}")
+        self._update_robot_led(status_msg)
 
-    def _refresh_safety(self):
-        self.camera_status_label.configure(
-            text=f"Camera: {'OK' if self.ros.camera_ok else 'DISCONNECTED'}"
-        )
-        self.hand_status_label.configure(
-            text=f"Hand in work area: {'YES - motion withheld' if self.ros.hand_detected else 'clear'}"
-        )
+        self.label_tube0_7.setText("OK" if self.node.camera_ok else "DISCONNECTED")
+
+        if self.node.hand_detected:
+            self.label_tube0_8.setText("YES - motion withheld")
+            self.label_tube0_8.setStyleSheet("color: red; font-weight: bold;")
+        else:
+            self.label_tube0_8.setText("Clear")
+            self.label_tube0_8.setStyleSheet("color: white;")
+
+        self._update_grip_fail_banner()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    ros_node = HmiRosBridge()
+    node = IntegratedHMINode()
 
-    spin_thread = threading.Thread(target=rclpy.spin, args=(ros_node,), daemon=True)
+    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
 
-    root = tk.Tk()
-    HmiApp(root, ros_node)
-    try:
-        root.mainloop()
-    finally:
-        ros_node.destroy_node()
-        rclpy.shutdown()
+    app = QApplication(sys.argv)
+    window = HMIDashboardApp(node)
+    window.show()
+
+    app_exec_code = app.exec_()
+
+    node.destroy_node()
+    rclpy.shutdown()
+    sys.exit(app_exec_code)
 
 
 if __name__ == "__main__":
