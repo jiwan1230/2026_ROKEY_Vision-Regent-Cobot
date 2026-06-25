@@ -32,6 +32,10 @@ class MainDecisionNode(Node):
         # 손 감지 시 자동 비상정지 반응의 런타임 on/off. 끄더라도 hand_detected
         # 구독/표시는 계속 갱신되고, stop_task 호출과 task 보류만 건너뜀.
         self.hand_safety_enabled = True
+        # HMI의 Start 버튼으로만 켜지는 게이트. 꺼져있으면(기본값) vision이 뭘 보내도
+        # 자동 dispatch를 안 함 - HMI가 직접 start_task를 호출하는 것과 이 자동 루프가
+        # 동시에 같은 서비스를 부르는 충돌을 막기 위함.
+        self.system_running = False
 
         self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
@@ -49,6 +53,13 @@ class MainDecisionNode(Node):
         )
         self.publish_hand_safety_enabled()
 
+        # HMI Start/Stop 버튼이 토글하고, 다른 클라이언트가 현재 상태를 구독할 수 있게 노출
+        self.system_running_pub = self.create_publisher(Bool, "/robot/system_running", 10)
+        self.create_service(
+            SetBool, "/robot/set_system_running", self.handle_set_system_running
+        )
+        self.publish_system_running()
+
         self.get_logger().info("main_decision_node ready")
 
     def publish_hand_safety_enabled(self):
@@ -61,6 +72,17 @@ class MainDecisionNode(Node):
         response.message = (
             f"hand-detected auto-stop {'enabled' if self.hand_safety_enabled else 'disabled'}"
         )
+        self.get_logger().warn(response.message)
+        return response
+
+    def publish_system_running(self):
+        self.system_running_pub.publish(Bool(data=self.system_running))
+
+    def handle_set_system_running(self, request, response):
+        self.system_running = request.data
+        self.publish_system_running()
+        response.success = True
+        response.message = f"system_running set to {self.system_running}"
         self.get_logger().warn(response.message)
         return response
 
@@ -78,6 +100,8 @@ class MainDecisionNode(Node):
 
     def on_tube_state(self, msg: TubeState):
         if self.busy:
+            return
+        if not self.system_running:
             return
         if not self.camera_ok:
             self.get_logger().warn("Camera not OK - robot motion withheld")

@@ -50,8 +50,10 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
 
+from std_srvs.srv import SetBool
+
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
-from interfaces.srv import RequestRecheck, StartTask, StopTask
+from interfaces.srv import RequestRecheck, StopTask
 
 STATE_LABELS = {
     TubeState.STATE_REFILL_NEEDED: "REFILL NEEDED",
@@ -95,6 +97,7 @@ class IntegratedHMINode(Node):
         self.hand_detected = False
         self.gripper_closed = False
         self.grip_failed = False
+        self.system_running = False
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -121,10 +124,11 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, "/vision/hand_detected", self._on_hand_detected, 10)
         self.create_subscription(Bool, '/gripper/is_closed', self._on_gripper_state, 10)
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
+        self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
 
-        self.start_task_client = self.create_client(StartTask, "/robot/start_task")
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
+        self.set_system_running_client = self.create_client(SetBool, "/robot/set_system_running")
 
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
@@ -149,12 +153,10 @@ class IntegratedHMINode(Node):
     def _on_hand_detected(self, msg): self.hand_detected = msg.data
     def _on_gripper_state(self, msg): self.gripper_closed = msg.data
     def _on_grip_failed(self, msg): self.grip_failed = msg.data
+    def _on_system_running(self, msg): self.system_running = msg.data
 
-    def call_start_task(self):
-        if self.latest_tube_state is None:
-            return None
-        req = StartTask.Request(tube_index=list(self.latest_tube_state.tube_index), state=list(self.latest_tube_state.state))
-        return self.start_task_client.call_async(req)
+    def call_set_system_running(self, running: bool):
+        return self.set_system_running_client.call_async(SetBool.Request(data=running))
 
     def call_stop_task(self): return self.stop_task_client.call_async(StopTask.Request(stop=True))
     def call_request_recheck(self): return self.recheck_client.call_async(RequestRecheck.Request(request=True))
@@ -309,17 +311,16 @@ class HMIDashboardApp(QDialog):
     # 운영 버튼 콜백
     # -----------------------------------------------------------------
     def on_start(self):
-        future = self.node.call_start_task()
-        if future is None:
-            self.log("Start: no tube_state received yet")
-            return
-        self.log("Start requested")
-        future.add_done_callback(lambda f: self._log_service_result("start_task", f))
+        future = self.node.call_set_system_running(True)
+        self.log("Start pressed - enabling automatic vision-driven control")
+        future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
 
     def on_stop(self):
-        future = self.node.call_stop_task()
-        self.log("Stop requested")
-        future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
+        future = self.node.call_set_system_running(False)
+        self.log("Stop pressed - disabling automatic vision-driven control")
+        future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
+        stop_future = self.node.call_stop_task()
+        stop_future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
     def on_recheck(self):
         future = self.node.call_request_recheck()
@@ -327,9 +328,11 @@ class HMIDashboardApp(QDialog):
         future.add_done_callback(lambda f: self._log_service_result("request_recheck", f))
 
     def on_emergency_stop(self):
-        future = self.node.call_stop_task()
+        future = self.node.call_set_system_running(False)
         self.log("EMERGENCY STOP pressed")
-        future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
+        future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
+        stop_future = self.node.call_stop_task()
+        stop_future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
     def _log_service_result(self, name, future):
         try:
