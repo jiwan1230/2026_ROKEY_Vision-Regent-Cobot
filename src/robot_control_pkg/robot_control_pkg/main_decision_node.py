@@ -81,6 +81,10 @@ class MainDecisionNode(Node):
     def handle_set_system_running(self, request, response):
         self.system_running = request.data
         self.publish_system_running()
+        if self.system_running:
+            # Start는 자동 루프를 켜는 것과 동시에, 멈춰서 대기 중인 작업이 있다면
+            # 그것도 같이 재개시킨다 (stop_event.clear()).
+            self.stop_task_client.call_async(StopTask.Request(stop=False))
         response.success = True
         response.message = f"system_running set to {self.system_running}"
         self.get_logger().warn(response.message)
@@ -90,13 +94,16 @@ class MainDecisionNode(Node):
         self.camera_ok = msg.data
 
     def on_hand_detected(self, msg: Bool):
-        was_clear = not self.hand_detected
+        was_detected = self.hand_detected
         self.hand_detected = msg.data
         if not self.hand_safety_enabled:
             return
-        if msg.data and was_clear and self.busy:
+        if msg.data and not was_detected and self.busy:
             self.get_logger().warn("Hand detected in work area - requesting emergency stop")
             self.stop_task_client.call_async(StopTask.Request(stop=True))
+        elif not msg.data and was_detected and self.busy:
+            self.get_logger().warn("Hand cleared from work area - resuming paused task")
+            self.stop_task_client.call_async(StopTask.Request(stop=False))
 
     def on_tube_state(self, msg: TubeState):
         if self.busy:

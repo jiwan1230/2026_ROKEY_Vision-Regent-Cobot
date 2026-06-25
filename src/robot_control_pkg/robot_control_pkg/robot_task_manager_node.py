@@ -154,9 +154,19 @@ class RobotTaskManagerNode(Node):
             return None
     #end
 
+    # 정지 요청은 abort가 아니라 "그 자리에서 일시정지"임 - stop_event가 풀릴 때까지
+    # 여기서 대기하다가, 풀리면 호출한 쪽의 바로 다음 줄부터 그대로 이어서 진행한다.
+    # 단, 노드가 셧다운되는 중이면 영원히 블락되면 안 되니 그 경우만 진짜로 abort.
     def _check_stop(self):
-        if self.stop_event.is_set():
-            raise TaskAborted()
+        if not self.stop_event.is_set():
+            return
+        self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume")
+        self.get_logger().warn("Task paused - waiting for stop to clear")
+        while self.stop_event.is_set():
+            if not rclpy.ok():
+                raise TaskAborted()
+            time.sleep(0.1)
+        self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
     def move(self, pose_name, move_type):
@@ -318,8 +328,9 @@ class RobotTaskManagerNode(Node):
     # ---- service handlers ---------------------------------------------------
 
     def handle_start_task(self, request, response):
-        #20260625 준형, start_task(시스템 시작)시 그리퍼 open 추가
-        self.grip(GripperControl.Request.COMMAND_OPEN)
+        # stop_event는 그리퍼 open보다 먼저 clear해야 함 - 이전 emergency stop이
+        # 남겨놓은 stop_event가 그대로면 grip()의 _check_stop()이 TaskAborted를
+        # 던지는데, try 블록 밖이면 아무도 못 잡고 노드가 죽어버림.
         self.stop_event.clear()
         state_map = dict(zip(request.tube_index, request.state))
 
@@ -328,6 +339,8 @@ class RobotTaskManagerNode(Node):
         all_normal = bool(state_map) and all(s == TubeState.STATE_NORMAL for s in state_map.values())
 
         try:
+            #20260625 준형, start_task(시스템 시작)시 그리퍼 open 추가
+            self.grip(GripperControl.Request.COMMAND_OPEN)
             if dispose_idxs:
                 for idx in dispose_idxs:
                     self.dispose_tube(idx)
@@ -365,11 +378,13 @@ class RobotTaskManagerNode(Node):
         if request.stop:
             self.stop_event.set()
             response.success = True
-            response.message = "Stop requested; current task will abort at the next safe checkpoint"
+            response.message = "Stop requested; current task will pause at the next safe checkpoint"
             self.get_logger().warn("Emergency stop requested")
         else:
+            self.stop_event.clear()
             response.success = True
-            response.message = "No-op (stop=false)"
+            response.message = "Resume requested; any paused task will continue"
+            self.get_logger().warn("Resume requested")
         return response
 
 
