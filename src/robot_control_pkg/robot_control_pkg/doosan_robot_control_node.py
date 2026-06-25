@@ -29,9 +29,10 @@ import DR_init
 DR_init.__dsr__node = dsr_node
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
-
-from DSR_ROBOT2 import movel, move_periodic
-
+# 260625 준형님 코드로 부분 수정
+# from DSR_ROBOT2 import movel, move_periodic
+from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE
+# END
 class DoosanRobotControlNode(Node):
     def __init__(self):
         super().__init__("doosan_robot_control_node")
@@ -65,13 +66,23 @@ class DoosanRobotControlNode(Node):
             movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'down_tray':
             movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
-        elif move_type == 'rotate':            
-            rotate_deg = (1 - current_ratio) / 0.01 * 1
-            target_copy = target.copy()
-            target_copy[3] = 90
-            target_copy[4] += rotate_deg
-            target_copy[5] = -90
-            movel(target_copy, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+        # 260625 준형님 코드로 부분 수정
+        # elif move_type == 'rotate':            
+        #     rotate_deg = (1 - current_ratio) / 0.01 * 1
+        #     target_copy = target.copy()
+        #     target_copy[3] = 90
+        #     target_copy[4] += rotate_deg
+        #     target_copy[5] = -90
+        #     movel(target_copy, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+        elif move_type == 'rotate':
+            rotate_pos = get_current_posx(DR_BASE)[0]
+            rotate_pos[2] += -1.7
+            rotate_pos[4] += -2
+            rotate_pos[3] = 90
+            rotate_pos[5] = -90
+            self.get_logger().info(f'{rotate_pos}로 이동')
+            movel(rotate_pos, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+        # END
         time.sleep(self.move_duration_sec)
     #end
     
