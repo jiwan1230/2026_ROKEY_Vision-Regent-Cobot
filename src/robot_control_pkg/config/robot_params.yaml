@@ -1,11 +1,15 @@
 # All poses are [x, y, z, rx, ry, rz] in the Doosan posx convention (mm, deg),
-# matching the format used by movej/movel/posx in DSR_ROBOT2. Values below are
-# placeholder coordinates for the mock controller; replace with the real
-# taught/calibrated poses when wiring up doosan_robot2 + the physical M0609.
+# matching the format used by movej/movel/posx in DSR_ROBOT2.
 #
-# Design rule (spec doc section 13): every coordinate is split into an
-# "approach" pose (safe height above the tube) and a "pick"/"refill" pose
-# (the actual working height), so the arm always descends/retreats vertically.
+# Physical layout: 3 trays (3x1 each) sit stacked in depth in front of the
+# robot/camera; only the front-most tray (tray_idx) is ever active. Each
+# pose below is taught/calibrated independently rather than computed from
+# tray_gap/tube_gap at runtime, since real-world placement can drift from
+# the ideal spacing - tray_gap/tube_gap are kept as reference values for
+# filling in new poses by hand, not consumed by any node.
+#
+# Entries marked "TODO: 실측 필요" are rough placeholders copied from
+# tray_idx 0 / tube_idx 0 and must be re-taught on the real robot.
 
 doosan_robot_control_node:
   ros__parameters:
@@ -13,62 +17,110 @@ doosan_robot_control_node:
     m_acceleration: 60.0
     d_velocity: 30.0
     d_acceleration: 30.0
-    tray_gap : 50
-    tray_crood : 0
+    tray_gap: 50.0
+    tray_crood: 0
 
-    pose_names: [
-      "home_pose",
-      "waste_pose",
-      "waste_down_pose",
-      "normal_tray_approach_pose",
-      "normal_tray_pose",
-      "tray_pick_pose",
-      "pick_tool_pose", "pick_tool_down_pose",
-      "refill_pose",
-      "tube_0_approach_pose", "tube_0_pick_pose", "tube_0_refill_pose",
-      "tube_1_approach_pose", "tube_1_pick_pose", "tube_1_refill_pose",
-      "tube_2_approach_pose", "tube_2_pick_pose", "tube_2_refill_pose"
-    ]
+    # ===== Common =====
+    poses.home_pose: [492.01, 79.0, 420.0, 28.77, 180.0, -151.23]
+    poses.waste_approach_pose: [200.0, -200.0, 350.0, 90.0, 180.0, -90.0]
+    poses.waste_release_pose: [200.0, -200.0, 160.0, 90.0, 180.0, -90.0]
 
-    #기본 위치(트레이 중앙)
-    poses.home_pose: [400.0, 0.0, 350.0, 90.0, 180.0, -90.0]
-    #폐기 상단 위치
-    poses.waste_pose: [200.0, -200.0, 350.0, 90.0, 180.0, -90.0]
-    #폐기 하단 위치
-    poses.waste_down_pose: [200.0, -200.0, 160.0, 90.0, 180.0, -90.0]
-    #트레이 상단 위치(정상 상태인 트레이 놓는 위치)
-    poses.normal_tray_approach_pose: [500.0, 350.0, 350.0, 90.0, 180.0, -90.0]
-    #트레이 하단 위치(정상 상태인 트레이 놓는 위치)
-    poses.normal_tray_pose: [500.0, 350.0, 350.0, 90.0, 180.0, -90.0]
-    #트레이 하단 위치(정상 상태인 트레이 잡는 위치)
-    poses.tray_pick_pose: [400.0, 0.0, 180.0, 90.0, 180.0, -90.0]
+    # ===== Tray tool stand (fixed, no tray_idx) =====
+    poses.tray_tool_stand_approach_pose: [350.66, -227.73, 420.00, 7.06, 180.0, -174.73]
+    poses.tray_tool_stand_grip_pose: [350.66, -227.73, 292.13, 7.06, 180.0, -174.73]
 
-    #트레이 픽업 기기 상단 위치
-    poses.pick_tool_pose : [300.0, 350.0, 350.0, 90.0, 180.0, -90.0]
-    #트레이 픽업 기기 하단 위치
-    poses.pick_tool_down_pose : [300.0, 350.0, 350.0, 90.0, 180.0, -90.0]
+    # ===== Refill source (fixed, no tray_idx) =====
+    poses.refill_source_approach_pose: [273.84, 222.00, 420.0, 50.56, -180.0, -130.72]
+    poses.refill_source_grip_pose: [273.84, 222.00, 270.81, 50.56, -180.0, -130.72]
 
-    #refill용 튜브 위치
-    poses.refill_pose: [300.0, 300.0, 350.0, 90.0, 180.0, -90.0]
+    # ===== Tray transfer - tray 0 =====
+    poses.tray_transfer_0_tool_approach_pose: [351.62, 73.39, 420.00, 8.68, -179.71, -173.15]
+    poses.tray_transfer_0_tool_preinsert_pose: [351.62, 73.39, 330.98, 8.68, -179.71, -173.15]
+    poses.tray_transfer_0_tool_insert_pose: [442.0, 73.39, 330.98, 160.37, -180.0, -21.42]
+    poses.tray_transfer_0_lift_pose: [442.0, 73.39, 420.0, 160.37, -180.0, -21.42]
+    poses.tray_transfer_0_success_approach_pose: [616.9, -226.58, 417.94, 159.84, -179.97, -21.95]
+    poses.tray_transfer_0_success_place_pose: [621.22, -228.06, 322.90, 159.19, -179.77, -22.61]
+    poses.tray_transfer_0_tool_detach_pose: [540.00, -228.06, 322.90, 159.19, -179.77, -22.61]
 
-    #tube 상단 위치
-    poses.tube_0_approach_pose: [400.0, 0.0, 300.0, 90.0, 180.0, -90.0]
-    #tube 하단 위치
-    poses.tube_0_pick_pose: [400.0, 0.0, 160.0, 90.0, 180.0, -90.0]
-    #tube refill 위치(공중에서 기울이는 위치)
-    poses.tube_0_refill_pose: [400.0, 0.0, 220.0, 90.0, 180.0, -90.0]
+    # ===== Tray transfer - tray 1 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.tray_transfer_1_tool_approach_pose: [351.62, 73.39, 420.00, 8.68, -179.71, -173.15]
+    poses.tray_transfer_1_tool_preinsert_pose: [351.62, 73.39, 330.98, 8.68, -179.71, -173.15]
+    poses.tray_transfer_1_tool_insert_pose: [442.0, 73.39, 330.98, 160.37, -180.0, -21.42]
+    poses.tray_transfer_1_lift_pose: [442.0, 73.39, 420.0, 160.37, -180.0, -21.42]
+    poses.tray_transfer_1_success_approach_pose: [616.9, -226.58, 417.94, 159.84, -179.97, -21.95]
+    poses.tray_transfer_1_success_place_pose: [621.22, -228.06, 322.90, 159.19, -179.77, -22.61]
+    poses.tray_transfer_1_tool_detach_pose: [540.00, -228.06, 322.90, 159.19, -179.77, -22.61]
 
-    poses.tube_1_approach_pose: [350.0, 0.0, 300.0, 90.0, 180.0, -90.0]
-    poses.tube_1_pick_pose: [350.0, 0.0, 160.0, 90.0, 180.0, -90.0]
-    poses.tube_1_refill_pose: [350.0, 0.0, 220.0, 90.0, 180.0, -90.0]
+    # ===== Tray transfer - tray 2 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.tray_transfer_2_tool_approach_pose: [351.62, 73.39, 420.00, 8.68, -179.71, -173.15]
+    poses.tray_transfer_2_tool_preinsert_pose: [351.62, 73.39, 330.98, 8.68, -179.71, -173.15]
+    poses.tray_transfer_2_tool_insert_pose: [442.0, 73.39, 330.98, 160.37, -180.0, -21.42]
+    poses.tray_transfer_2_lift_pose: [442.0, 73.39, 420.0, 160.37, -180.0, -21.42]
+    poses.tray_transfer_2_success_approach_pose: [616.9, -226.58, 417.94, 159.84, -179.97, -21.95]
+    poses.tray_transfer_2_success_place_pose: [621.22, -228.06, 322.90, 159.19, -179.77, -22.61]
+    poses.tray_transfer_2_tool_detach_pose: [540.00, -228.06, 322.90, 159.19, -179.77, -22.61]
 
-    poses.tube_2_approach_pose: [450.0, 0.0, 300.0, 90.0, 180.0, -90.0]
-    poses.tube_2_pick_pose: [450.0, 0.0, 160.0, 90.0, 180.0, -90.0]
-    poses.tube_2_refill_pose: [450.0, 0.0, 220.0, 90.0, 180.0, -90.0]
+    # ===== Refill target - tray 0 =====
+    poses.refill_target_0_0_approach_pose: [492.01, 149.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_0_work_pose: [492.01, 149.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_0_1_approach_pose: [492.01, 79.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_1_work_pose: [492.01, 79.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_1_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+    poses.refill_target_0_2_approach_pose: [492.01, 9.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_2_work_pose: [492.01, 9.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_0_2_pour_pose: [492.0, -41.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+
+    # ===== Refill target - tray 1 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.refill_target_1_0_approach_pose: [492.01, 149.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_0_work_pose: [492.01, 149.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_1_1_approach_pose: [492.01, 79.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_1_work_pose: [492.01, 79.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_1_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_1_2_approach_pose: [492.01, 9.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_2_work_pose: [492.01, 9.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_1_2_pour_pose: [492.0, -41.0, 200.0, 90.0, 135.0, -90.0]
+
+    # ===== Refill target - tray 2 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.refill_target_2_0_approach_pose: [492.01, 149.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_0_work_pose: [492.01, 149.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_2_1_approach_pose: [492.01, 79.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_1_work_pose: [492.01, 79.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_1_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_2_2_approach_pose: [492.01, 9.0, 420.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_2_work_pose: [492.01, 9.0, 315.0, 120.5, 180.0, -13.87]
+    poses.refill_target_2_2_pour_pose: [492.0, -41.0, 200.0, 90.0, 135.0, -90.0]
+
+    # ===== Dispose target - tray 0 =====
+    poses.dispose_tray_0_tube_0_approach_pose: [490.0, 150.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_0_tube_0_grip_pose: [490.0, 150.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_0_tube_1_approach_pose: [490.0, 80.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_0_tube_1_grip_pose: [490.0, 80.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_0_tube_2_approach_pose: [490.0, 10.0, 420.0, 170.0, 180.0, -11.79]
+    poses.dispose_tray_0_tube_2_grip_pose: [490.0, 10.0, 300.0, 160.37, -180.0, -21.42]
+
+    # ===== Dispose target - tray 1 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.dispose_tray_1_tube_0_approach_pose: [490.0, 150.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_1_tube_0_grip_pose: [490.0, 150.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_1_tube_1_approach_pose: [490.0, 80.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_1_tube_1_grip_pose: [490.0, 80.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_1_tube_2_approach_pose: [490.0, 10.0, 420.0, 170.0, 180.0, -11.79]
+    poses.dispose_tray_1_tube_2_grip_pose: [490.0, 10.0, 300.0, 160.37, -180.0, -21.42]
+
+    # ===== Dispose target - tray 2 (TODO: 실측 필요, tray 0 값 임시 복사) =====
+    poses.dispose_tray_2_tube_0_approach_pose: [490.0, 150.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_2_tube_0_grip_pose: [490.0, 150.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_2_tube_1_approach_pose: [490.0, 80.0, 420.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_2_tube_1_grip_pose: [490.0, 80.0, 300.0, 160.37, -180.0, -21.42]
+    poses.dispose_tray_2_tube_2_approach_pose: [490.0, 10.0, 420.0, 170.0, 180.0, -11.79]
+    poses.dispose_tray_2_tube_2_grip_pose: [490.0, 10.0, 300.0, 160.37, -180.0, -21.42]
 
 robot_task_manager_node:
   ros__parameters:
     num_tubes: 3
+    num_trays: 3
     grip_retry_count: 1
     recheck_timeout_sec: 5.0
     # 260624 jiwan refill 반복 보충 루프 안전 상한 (무한루프 방지)

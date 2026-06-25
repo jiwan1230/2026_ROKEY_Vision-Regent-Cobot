@@ -16,6 +16,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_srvs.srv import Trigger
 
 from interfaces.msg import RobotStatus, TubeState
 from interfaces.srv import (
@@ -29,15 +30,23 @@ from interfaces.srv import (
 )
 from robot_control_pkg.poses import (
     HOME_POSE,
-    NORMAL_TRAY_APPROACH_POSE,
-    NORMAL_TRAY_POSE,
-    TRAY_PICK_POSE,
-    WASTE_POSE,
-    WASTE_DOWN_POSE,
-    REFILL_POSE,
-    tube_approach_pose,
-    tube_pick_pose,
-    tube_refill_pose,
+    WASTE_APPROACH_POSE,
+    WASTE_RELEASE_POSE,
+    TRAY_TOOL_STAND_APPROACH_POSE,
+    TRAY_TOOL_STAND_GRIP_POSE,
+    REFILL_SOURCE_APPROACH_POSE,
+    REFILL_SOURCE_GRIP_POSE,
+    tray_transfer_tool_approach_pose,
+    tray_transfer_tool_preinsert_pose,
+    tray_transfer_tool_insert_pose,
+    tray_transfer_lift_pose,
+    tray_transfer_success_approach_pose,
+    tray_transfer_success_place_pose,
+    tray_transfer_tool_detach_pose,
+    refill_target_approach_pose,
+    refill_target_pour_pose,
+    dispose_tube_approach_pose,
+    dispose_tube_grip_pose,
 )
 
 
@@ -59,6 +68,10 @@ class RobotTaskManagerNode(Node):
         # 260624 jiwan refill 반복 보충 루프의 안전 상한 (무한루프 방지)
         self.declare_parameter("max_pour_attempts", 5)
         # end
+        # 트레이는 깊이 방향으로 3줄(num_trays) 쌓여있고, 항상 맨 앞줄(tray_idx)만
+        # 활성 상태. transfer_tray()가 끝날 때마다 tray_idx를 올려서 다음 줄로 넘어감.
+        self.declare_parameter("num_trays", 3)
+        self.tray_idx = 0
         #20260624 준형, grip_retry_count, recheck_timeout_sec, service_call_timeout_sec를 사용할 때 get_parameter()로 가져오도록 수정
         # self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
         # self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
@@ -90,6 +103,13 @@ class RobotTaskManagerNode(Node):
             MarkTubeDisposed, '/vision/mark_tube_disposed', callback_group=cb_group
         )
         # end
+        # 트레이가 통째로 바뀔 때 vision이 새 트레이 기준으로 다시 부트스트랩하도록 함
+        self.reset_slot_anchors_client = self.create_client(
+            Trigger, '/vision/reset_slot_anchors', callback_group=cb_group
+        )
+        self.reset_handled_slots_client = self.create_client(
+            Trigger, '/vision/reset_handled_slots', callback_group=cb_group
+        )
         self.create_service(
             StartTask, "/robot/start_task", self.handle_start_task, callback_group=cb_group
         )
@@ -177,17 +197,17 @@ class RobotTaskManagerNode(Node):
 
     def dispose_tube(self, idx):
         self.publish_status(RobotStatus.STATUS_MOVING, "dispose", f"approach tube {idx}")
-        self.move(tube_approach_pose(idx), 'move')
-        self.move(tube_pick_pose(idx), 'down')
+        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move')
+        self.move(dispose_tube_grip_pose(self.tray_idx, idx), 'down')
 
         self.publish_status(RobotStatus.STATUS_PICKING, "dispose", f"grip tube {idx}")
         if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
             raise TaskFailed(f"Gripper failed to close on tube {idx}")
 
-        self.move(tube_approach_pose(idx), 'move')
+        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move')
         self.publish_status(RobotStatus.STATUS_DISPOSING, "dispose", f"move tube {idx} to waste zone")
-        self.move(WASTE_POSE, 'move')
-        self.move(WASTE_DOWN_POSE, 'down')
+        self.move(WASTE_APPROACH_POSE, 'move')
+        self.move(WASTE_RELEASE_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
 
         # 260624 jiwan 폐기 완료를 vision에 알림 (handled_slots override 트리거).
@@ -208,16 +228,16 @@ class RobotTaskManagerNode(Node):
     def refill_tube(self, idx):
         #refill 튜브 위치로 이동, 시약통 집기
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
-        self.move(REFILL_POSE, 'move')
-        self.move(REFILL_POSE, 'down')
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
+        self.move(REFILL_SOURCE_GRIP_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_CLOSE)
-        self.move(REFILL_POSE, 'move')
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
 
         #채울 튜브 위치로 이동
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
-        self.move(tube_approach_pose(idx), 'move')
+        self.move(refill_target_approach_pose(self.tray_idx, idx), 'move')
         #20260625 준형, refill_pose(45deg 기울인 위치)로 이동 추가
-        self.move(tube_refill_pose(idx), 'down')
+        self.move(refill_target_pour_pose(self.tray_idx, idx), 'down')
 
         max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
         self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
@@ -231,7 +251,7 @@ class RobotTaskManagerNode(Node):
             if result.state == TubeState.STATE_DISPOSE_NEEDED:
                 raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-            self.move(tube_refill_pose(idx), 'rotate')
+            self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate')
             self._check_stop()
             time.sleep(0.3)  # simulated dispense duration for one pour increment
         else:
@@ -239,32 +259,62 @@ class RobotTaskManagerNode(Node):
 
         #시약통 반납
         #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
-        self.move(tube_refill_pose(idx), 'down')
-        self.move(tube_approach_pose(idx), 'move')
+        self.move(refill_target_pour_pose(self.tray_idx, idx), 'down')
+        self.move(refill_target_approach_pose(self.tray_idx, idx), 'move')
         self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
-        self.move(REFILL_POSE, 'move')
-        self.move(REFILL_POSE, 'down')
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
+        self.move(REFILL_SOURCE_GRIP_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
-        self.move(REFILL_POSE, 'move')
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
 
         self.move(HOME_POSE, 'move')
     # end
 
     def transfer_tray(self):
-        self.publish_status(RobotStatus.STATUS_MOVING, "transfer_normal", "approach tray")
-        self.move(TRAY_PICK_POSE, 'move')
-
-        self.publish_status(RobotStatus.STATUS_PICKING, "transfer_normal", "grip tray")
+        self.publish_status(RobotStatus.STATUS_MOVING, "transfer_normal", "pick up tray tool")
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
+        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down')
         if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
-            raise TaskFailed("Gripper failed to grip tray")
+            raise TaskFailed("Gripper failed to grip tray tool")
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
 
         self.publish_status(
-            RobotStatus.STATUS_TRANSFER_NORMAL, "transfer_normal", "move tray to normal zone"
+            RobotStatus.STATUS_TRANSFER_NORMAL, "transfer_normal", f"transfer tray {self.tray_idx}"
         )
-        self.move(NORMAL_TRAY_APPROACH_POSE, 'down_tray')
-        self.move(NORMAL_TRAY_POSE, 'move')
+        self.move(tray_transfer_tool_approach_pose(self.tray_idx), 'move')
+        self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray')
+        self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray')
+        self.move(tray_transfer_lift_pose(self.tray_idx), 'move')
+
+        self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move')
+        self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray')
+        self.move(tray_transfer_tool_detach_pose(self.tray_idx), 'move')
+
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
+        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down')
         self.grip(GripperControl.Request.COMMAND_OPEN)
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
         self.move(HOME_POSE, 'move')
+
+        self._advance_tray()
+
+    # 트레이 1개 처리 완료 후 다음 줄로 넘어가면서, vision이 새 트레이 기준으로
+    # 다시 부트스트랩하도록 anchor/handled_slots를 리셋한다.
+    def _advance_tray(self):
+        num_trays = int(self.get_parameter("num_trays").value)
+        if self.tray_idx >= num_trays - 1:
+            self.get_logger().warn("All trays already transferred; staying on the last tray_idx")
+            return
+
+        self.tray_idx += 1
+        for client, request in (
+            (self.reset_slot_anchors_client, Trigger.Request()),
+            (self.reset_handled_slots_client, Trigger.Request()),
+        ):
+            result = self._call_sync(client, request)
+            if result is None or not result.success:
+                self.get_logger().warn(f"{client.srv_name} failed while advancing to tray {self.tray_idx}")
+        self.get_logger().info(f"Advanced to tray_idx={self.tray_idx}")
 
     # ---- service handlers ---------------------------------------------------
 
