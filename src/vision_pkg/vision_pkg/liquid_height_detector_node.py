@@ -9,6 +9,7 @@ PDF's Vision error-handling table in section 16).
 """
 import time
 
+import cv2
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
@@ -31,9 +32,12 @@ from std_srvs.srv import Trigger
 # 260624 jiwan side_image가 Image -> CompressedImage(JPEG)로 바뀜에 따른 import 수정
 # from sensor_msgs.msg import Image
 # from vision_pkg.ros_image_utils import image_to_bgr8
-from sensor_msgs.msg import CompressedImage
-from vision_pkg.ros_image_utils import compressed_image_to_bgr8
+from sensor_msgs.msg import CompressedImage, Image
+from vision_pkg.ros_image_utils import compressed_image_to_bgr8, bgr8_to_image
 # end
+
+# HMI의 YOLO 추론 결과 표시 토글용 박스 색상 (BGR)
+_BOX_COLORS = {"cup": (0, 200, 0), "height": (0, 165, 255), "hand": (0, 0, 255)}
 
 
 class LiquidHeightDetectorNode(Node):
@@ -136,6 +140,12 @@ class LiquidHeightDetectorNode(Node):
         self.slot_anchors = None
         # end
 
+        # HMI의 YOLO 추론 결과 표시 토글. 코어 추론(분류/손 감지)은 이 값과
+        # 무관하게 항상 돌고, 이건 박스를 그려서 /vision/yolo_image로 보낼지만 결정함.
+        self.yolo_enabled = False
+        self.create_subscription(Bool, "/vision/yolo_enabled", self.on_yolo_enabled, 10)
+        self.yolo_image_pub = self.create_publisher(Image, "/vision/yolo_image", 10)
+
         self.tube_height_pub = self.create_publisher(TubeHeight, "/vision/tube_height", 10)
         self.hand_detected_pub = self.create_publisher(Bool, "/vision/hand_detected", 10)
         self.camera_status_pub = self.create_publisher(Bool, "/vision/camera_status", 10)
@@ -164,6 +174,28 @@ class LiquidHeightDetectorNode(Node):
         # end
 
         self.get_logger().info("liquid_height_detector_node ready")
+
+    def on_yolo_enabled(self, msg: Bool):
+        self.yolo_enabled = msg.data
+
+    def _publish_yolo_overlay(self, frame, cup_boxes, height_boxes, hand_boxes):
+        overlay = frame.copy()
+        for label, boxes in (("cup", cup_boxes), ("height", height_boxes), ("hand", hand_boxes)):
+            color = _BOX_COLORS[label]
+            for b in boxes:
+                pt1, pt2 = (int(b.x1), int(b.y1)), (int(b.x2), int(b.y2))
+                cv2.rectangle(overlay, pt1, pt2, color, 2)
+                cv2.putText(
+                    overlay,
+                    f"{label} {b.conf:.2f}",
+                    (pt1[0], max(0, pt1[1] - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    1,
+                    cv2.LINE_AA,
+                )
+        self.yolo_image_pub.publish(bgr8_to_image(overlay))
 
     def check_camera_timeout(self):
         if self.last_image_time is None:
@@ -226,6 +258,10 @@ class LiquidHeightDetectorNode(Node):
                 height_boxes.append(b)
             elif cls_name == "hand":
                 hand_boxes.append(b)
+
+        if self.yolo_enabled:
+            self._publish_yolo_overlay(frame, cup_boxes, height_boxes, hand_boxes)
+
         # 260624 jiwan hand_detected 수정
         # if self.hand_safety_enabled:
         #     self.hand_detected_pub.publish(Bool(data=len(hand_boxes) > 0))
