@@ -158,13 +158,12 @@ class RobotTaskManagerNode(Node):
         if self.stop_event.is_set():
             raise TaskAborted()
 
-    # 260624 jiwan current_ratio 파라미터 추가 - 'rotate' move_type에서 MoveToPose로
-    # 안 넘어가고 있던 버그(refill_tube가 3개 인자로 호출해서 TypeError 났었음) 수정
-    def move(self, pose_name, move_type, current_ratio=0.0):
+    # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
+    def move(self, pose_name, move_type):
         self._check_stop()
         result = self._call_sync(
             self.move_client,
-            MoveToPose.Request(pose_name=pose_name, move_type=move_type, current_ratio=current_ratio),
+            MoveToPose.Request(pose_name=pose_name, move_type=move_type),
         )
         if not result.success:
             raise TaskFailed(result.message)
