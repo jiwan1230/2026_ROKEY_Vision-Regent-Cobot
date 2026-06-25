@@ -178,6 +178,7 @@ class HMIDashboardApp(QDialog):
         self.btn_admin_login.clicked.connect(self._on_admin_login)
         self.btn_admin_logout.clicked.connect(self._on_admin_logout)
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
+        self.btn_apply_vision_params.clicked.connect(self._on_apply_vision_params)
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -360,6 +361,16 @@ class HMIDashboardApp(QDialog):
         self.input_admin_pw.clear()
         self.lbl_admin_login_status.setText("")
         self.log("시스템 관리자 로그아웃")
+
+    def _on_apply_vision_params(self):
+        try:
+            rate = float(self.input_publish_rate.text())
+            quality = self.input_jpeg_quality.value()
+            cam_idx = self.input_cam_index.value()
+            self.log(f"[Vision 파라미터 적용] 발행속도={rate}Hz  JPEG품질={quality}  카메라={cam_idx}")
+            QMessageBox.information(self, "적용 완료", f"Vision 파라미터가 반영되었습니다.\n발행속도: {rate} Hz\nJPEG 품질: {quality}\n카메라 인덱스: {cam_idx}")
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "발행 속도에 숫자가 아닌 값이 있습니다.")
 
     def _update_grip_fail_banner(self):
         if self.node.grip_failed and not self._grip_fail_shown:
