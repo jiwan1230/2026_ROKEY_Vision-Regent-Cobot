@@ -47,7 +47,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from PyQt5 import uic
 from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
 from std_srvs.srv import SetBool
@@ -176,9 +176,16 @@ class IntegratedHMINode(Node):
 # 2026-06-24 soo: 외부 QTabWidget 제거 - uic.loadUi(self)로 직접 로드해 탭 중복 제거
 # =====================================================================
 class HMIDashboardApp(QDialog):
+    # rclpy's future.add_done_callback() fires on the background ROS spin
+    # thread, not the Qt GUI thread - touching QTextEdit from there directly
+    # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
+    # marshal the string-only payload onto the GUI thread safely.
+    log_signal = pyqtSignal(str)
+
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
         self.node = node
+        self.log_signal.connect(self.log)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
@@ -335,11 +342,13 @@ class HMIDashboardApp(QDialog):
         stop_future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
     def _log_service_result(self, name, future):
+        # Called from the ROS spin thread (future.add_done_callback) - emit
+        # the signal rather than touching textEdit directly here.
         try:
             result = future.result()
-            self.log(f"{name} -> success={result.success} message={result.message}")
+            self.log_signal.emit(f"{name} -> success={result.success} message={result.message}")
         except Exception as e:
-            self.log(f"{name} -> error: {e}")
+            self.log_signal.emit(f"{name} -> error: {e}")
 
     # -----------------------------------------------------------------
     # 해상도 변경 콜백
