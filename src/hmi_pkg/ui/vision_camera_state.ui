@@ -715,9 +715,9 @@
          <property name="geometry">
           <rect>
            <x>0</x>
-           <y>10</y>
+           <y>5</y>
            <width>1321</width>
-           <height>241</height>
+           <height>166</height>
           </rect>
          </property>
          <property name="title">
@@ -727,9 +727,9 @@
      <property name="geometry">
            <rect>
             <x>20</x>
-            <y>40</y>
+            <y>30</y>
             <width>1261</width>
-            <height>191</height>
+            <height>126</height>
            </rect>
           </property>
          </widget>
@@ -743,9 +743,9 @@
          <property name="geometry">
           <rect>
            <x>0</x>
-           <y>10</y>
+           <y>5</y>
            <width>1321</width>
-           <height>241</height>
+           <height>166</height>
           </rect>
          </property>
          <property name="title">
@@ -755,9 +755,9 @@
           <property name="geometry">
            <rect>
             <x>20</x>
-            <y>40</y>
+            <y>30</y>
             <width>1261</width>
-            <height>191</height>
+            <height>126</height>
            </rect>
           </property>
           <property name="readOnly">
