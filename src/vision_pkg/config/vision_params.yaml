@@ -17,7 +17,7 @@ side_camera_node:
 
 liquid_height_detector_node:
   ros__parameters:
-    device: "0" #"cpu"
+    device: "cpu" #"cpu"
     confidence_threshold: 0.35
 
     # YOLO 추론 옵션

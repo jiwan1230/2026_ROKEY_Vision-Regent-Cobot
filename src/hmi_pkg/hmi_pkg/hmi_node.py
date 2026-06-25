@@ -50,6 +50,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
 
+from std_srvs.srv import Trigger, SetBool
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
 from interfaces.srv import RequestRecheck, StartTask, StopTask
 
@@ -130,6 +131,12 @@ class IntegratedHMINode(Node):
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
         self.gripper_force_pub = self.create_publisher(Int32, "/gripper/force_cmd", 10)
 
+        # 2026-06-25 soo: Reset Slot Anchor 버튼 — vision 슬롯 앵커 + handled_slots 초기화
+        self.reset_slot_anchors_client = self.create_client(Trigger, "/vision/reset_slot_anchors")
+        self.reset_handled_slots_client = self.create_client(Trigger, "/vision/reset_handled_slots")
+        # 2026-06-25 soo: Hand Safety 토글 — main_decision_node 손 감지 자동 정지 on/off
+        self.hand_safety_client = self.create_client(SetBool, "/robot/set_hand_safety_enabled")
+
     def _on_image(self, msg):
         try:
             self.latest_frame = decode_compressed(msg)   # CompressedImage(JPEG)
@@ -158,6 +165,9 @@ class IntegratedHMINode(Node):
 
     def call_stop_task(self): return self.stop_task_client.call_async(StopTask.Request(stop=True))
     def call_request_recheck(self): return self.recheck_client.call_async(RequestRecheck.Request(request=True))
+    def call_reset_slot_anchors(self): return self.reset_slot_anchors_client.call_async(Trigger.Request())
+    def call_reset_handled_slots(self): return self.reset_handled_slots_client.call_async(Trigger.Request())
+    def call_set_hand_safety(self, enabled: bool): return self.hand_safety_client.call_async(SetBool.Request(data=enabled))
 
     def publish_resolution(self, res_str: str):
         msg = String(); msg.data = res_str; self.resolution_pub.publish(msg)
@@ -207,6 +217,9 @@ class HMIDashboardApp(QDialog):
         self.slider_gripper_force.sliderReleased.connect(self.on_gripper_force_apply)
 
         self.btn_clear_fail.clicked.connect(self.on_clear_grip_fail)
+        # 2026-06-25 soo: Reset Slot Anchor 버튼 연결
+        self.btn_yolo_toggle_2.clicked.connect(self.on_reset_slot_anchor)
+        self.btn_yolo_toggle_2.setCheckable(False)
 
         # ── 2026-06-24 soo: 시스템 관리자 탭 연결 ───────────────────
         # 메인 QTabWidget 이름이 사용자에 의해 tabWidget → JOG 로 변경됨
@@ -371,6 +384,17 @@ class HMIDashboardApp(QDialog):
         value = self.slider_gripper_force.value()
         self.node.publish_gripper_force(value)
         self.log(f"그리퍼 강도 설정: {value}%")
+
+    # -----------------------------------------------------------------
+    # 2026-06-25 soo: Reset Slot Anchor — vision 슬롯 앵커 + 처리 슬롯 동시 초기화
+    #   트레이 교체 시 호출: slot_anchors 재부트스트랩 + handled_slots 클리어
+    # -----------------------------------------------------------------
+    def on_reset_slot_anchor(self):
+        f1 = self.node.call_reset_slot_anchors()
+        f1.add_done_callback(lambda f: self._log_service_result("reset_slot_anchors", f))
+        f2 = self.node.call_reset_handled_slots()
+        f2.add_done_callback(lambda f: self._log_service_result("reset_handled_slots", f))
+        self.log("Reset Slot Anchor requested (slot anchors + handled slots)")
 
     # -----------------------------------------------------------------
     # 그립 실패 알림 콜백

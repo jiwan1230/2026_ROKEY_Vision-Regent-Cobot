@@ -19,6 +19,9 @@ from vision_pkg.ros_image_utils import bgr8_to_compressed_image
 # 260624 jiwan import 추가
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 # end
+# 2026-06-25 soo: HMI 해상도 변경 명령 수신용
+from std_msgs.msg import String
+# end
 
 
 class SideCameraNode(Node):
@@ -96,9 +99,31 @@ class SideCameraNode(Node):
 
         period = 1.0 / publish_rate_hz if publish_rate_hz > 0 else 1.0
         self.timer = self.create_timer(period, self.publish_frame)
+
+        # 2026-06-25 soo: HMI Resolution 버튼 → 실시간 해상도 변경 구독
+        self.create_subscription(String, "/camera/resolution_cmd", self._on_resolution_cmd, 10)
+
         self.get_logger().info(
             f"side_camera_node started (source_mode={self.source_mode}, rate={publish_rate_hz}Hz)"
         )
+
+    # 2026-06-25 soo: "WxH" 포맷 문자열 받아서 캡처 해상도 + resize 파라미터 변경
+    def _on_resolution_cmd(self, msg: String):
+        parts = msg.data.strip().split('x')
+        if len(parts) != 2:
+            self.get_logger().warn(f"Invalid resolution_cmd format: {msg.data}")
+            return
+        try:
+            w, h = int(parts[0]), int(parts[1])
+        except ValueError:
+            self.get_logger().warn(f"Non-integer resolution_cmd: {msg.data}")
+            return
+        self.frame_width = w
+        self.frame_height = h
+        if self.cap and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        self.get_logger().info(f"Resolution changed to {w}x{h}")
 
     def publish_frame(self):
         frame = None

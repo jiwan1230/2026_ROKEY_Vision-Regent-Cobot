@@ -31,8 +31,8 @@ from std_srvs.srv import Trigger
 # 260624 jiwan side_image가 Image -> CompressedImage(JPEG)로 바뀜에 따른 import 수정
 # from sensor_msgs.msg import Image
 # from vision_pkg.ros_image_utils import image_to_bgr8
-from sensor_msgs.msg import CompressedImage
-from vision_pkg.ros_image_utils import compressed_image_to_bgr8
+from sensor_msgs.msg import CompressedImage, Image
+from vision_pkg.ros_image_utils import compressed_image_to_bgr8, bgr8_to_image
 # end
 
 
@@ -139,6 +139,12 @@ class LiquidHeightDetectorNode(Node):
         self.tube_height_pub = self.create_publisher(TubeHeight, "/vision/tube_height", 10)
         self.hand_detected_pub = self.create_publisher(Bool, "/vision/hand_detected", 10)
         self.camera_status_pub = self.create_publisher(Bool, "/vision/camera_status", 10)
+        # 2026-06-25 soo: YOLO 추론 결과 이미지 발행 (HMI videoLabel에서 표시)
+        self.yolo_image_pub = self.create_publisher(Image, "/vision/yolo_image", 10)
+
+        # 2026-06-25 soo: HMI YOLO 토글 버튼 → 추론 on/off 구독
+        self._yolo_enabled = True
+        self.create_subscription(Bool, "/vision/yolo_enabled", self._on_yolo_enabled, 10)
         # 260624 jiwan QoS를 우리 입맛대로 수정
         # self.create_subscription(Image, "/vision/side_image", self.on_image, 10)
         image_qos = QoSProfile(
@@ -164,6 +170,11 @@ class LiquidHeightDetectorNode(Node):
         # end
 
         self.get_logger().info("liquid_height_detector_node ready")
+
+    # 2026-06-25 soo: YOLO 추론 on/off — False 시 이미지 수신해도 추론 건너뜀
+    def _on_yolo_enabled(self, msg: Bool):
+        self._yolo_enabled = msg.data
+        self.get_logger().info(f"YOLO inference {'ENABLED' if msg.data else 'DISABLED'}")
 
     def check_camera_timeout(self):
         if self.last_image_time is None:
@@ -191,6 +202,10 @@ class LiquidHeightDetectorNode(Node):
     # 260624 jiwan msg 타입 Image -> CompressedImage, 디코드 함수도 교체
     def on_image(self, msg: CompressedImage):
         self.last_image_time = time.monotonic()
+
+        # 2026-06-25 soo: YOLO 비활성화 시 추론 건너뜀 (카메라 타임아웃 체크는 유지)
+        if not self._yolo_enabled:
+            return
 
         frame = compressed_image_to_bgr8(msg)
         # end
@@ -324,6 +339,12 @@ class LiquidHeightDetectorNode(Node):
         msg_out.liquid_height = liquid_height
         msg_out.confidence = confidence
         self.tube_height_pub.publish(msg_out)
+
+        # 2026-06-25 soo: YOLO result.plot()으로 바운딩박스 그린 이미지 받아서 발행
+        annotated = result.plot()
+        yolo_msg = bgr8_to_image(annotated)
+        yolo_msg.header.stamp = msg_out.header.stamp
+        self.yolo_image_pub.publish(yolo_msg)
 
 
 def main(args=None):
