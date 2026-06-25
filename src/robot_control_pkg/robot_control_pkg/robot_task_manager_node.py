@@ -110,6 +110,11 @@ class RobotTaskManagerNode(Node):
         self.reset_handled_slots_client = self.create_client(
             Trigger, '/vision/reset_handled_slots', callback_group=cb_group
         )
+        # 정지 요청이 들어오면 stop_event(체크포인트용)와 별개로, 지금 실제로
+        # 움직이고 있는 모션을 doosan_robot_control_node 쪽에서 즉시 끊어달라고 요청한다.
+        self.hard_stop_client = self.create_client(
+            Trigger, '/robot/hard_stop', callback_group=cb_group
+        )
         self.create_service(
             StartTask, "/robot/start_task", self.handle_start_task, callback_group=cb_group
         )
@@ -170,13 +175,20 @@ class RobotTaskManagerNode(Node):
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
     def move(self, pose_name, move_type):
-        self._check_stop()
-        result = self._call_sync(
-            self.move_client,
-            MoveToPose.Request(pose_name=pose_name, move_type=move_type),
-        )
-        if not result.success:
-            raise TaskFailed(result.message)
+        # 하드 스탑이 이 movel() 도중에 걸리면 로봇이 목표 지점에 도달하기 전에
+        # 멈춰버릴 수 있음. stop_event가 다시 켜져 있으면(=이동 중 정지 요청이 왔던
+        # 것) 재개를 기다렸다가 같은 목표로 다시 이동해서 실제로 도착했는지 보장한다.
+        while True:
+            self._check_stop()
+            result = self._call_sync(
+                self.move_client,
+                MoveToPose.Request(pose_name=pose_name, move_type=move_type),
+            )
+            if not result.success:
+                raise TaskFailed(result.message)
+            if not self.stop_event.is_set():
+                return
+            self.get_logger().warn(f"Move to {pose_name} interrupted by stop; will retry once resumed")
     # end
 
     def grip(self, command):
@@ -377,8 +389,15 @@ class RobotTaskManagerNode(Node):
     def handle_stop_task(self, request, response):
         if request.stop:
             self.stop_event.set()
+            # 체크포인트(다음 move/grip 호출 전)를 기다리지 않고, 지금 실제로 진행 중인
+            # movel()이 있으면 doosan_robot_control_node가 하드웨어 레벨로 즉시 멈추게 함.
+            # 응답을 기다릴 필요는 없어서 fire-and-forget.
+            if self.hard_stop_client.service_is_ready():
+                self.hard_stop_client.call_async(Trigger.Request())
+            else:
+                self.get_logger().warn("/robot/hard_stop not available; falling back to checkpoint-only stop")
             response.success = True
-            response.message = "Stop requested; current task will pause at the next safe checkpoint"
+            response.message = "Stop requested; current motion will halt immediately"
             self.get_logger().warn("Emergency stop requested")
         else:
             self.stop_event.clear()

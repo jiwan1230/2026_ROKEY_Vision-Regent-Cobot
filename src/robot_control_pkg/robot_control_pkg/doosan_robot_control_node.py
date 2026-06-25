@@ -14,6 +14,9 @@ import sys
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
+from std_srvs.srv import Trigger
+from dsr_msgs2.srv import MoveStop
 from interfaces.srv import MoveToPose
 from robot_control_pkg.poses import all_pose_names
 
@@ -24,6 +27,10 @@ ROBOT_ID = "dsr01"
 ROBOT_MODEL = "m0609"
 
 dsr_node = rclpy.create_node('dsr_lib_node_move', namespace=ROBOT_ID)
+# movel()이 내부적으로 dsr_node를 spin_until_future_complete로 블락하는 동안에도
+# 정지 요청이 끼어들 수 있어야 해서, MoveStop 클라이언트는 별도 노드에 둔다 - 같은
+# 노드를 같이 쓰면 movel()이 막혀있는 동안 이 요청도 같이 막혀버림.
+dsr_stop_node = rclpy.create_node('dsr_lib_node_stop', namespace=ROBOT_ID)
 
 import DR_init
 DR_init.__dsr__node = dsr_node
@@ -31,7 +38,7 @@ DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 # 260625 준형님 코드로 부분 수정
 # from DSR_ROBOT2 import movel, move_periodic
-from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE
+from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD
 # END
 class DoosanRobotControlNode(Node):
     def __init__(self):
@@ -54,7 +61,15 @@ class DoosanRobotControlNode(Node):
 
         self.current_pose_name = "home_pose"
 
+        self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
+
         self.create_service(MoveToPose, "/robot/move_to_pose", self.handle_move_to_pose)
+        # move_to_pose와 다른 callback group을 써야 함 - 기본(상호배제) 그룹을 같이 쓰면
+        # movel()이 진행 중인 동안 이 서비스 콜백도 같은 그룹에서 큐에 걸려 대기하느라
+        # 정지 요청이 모션이 끝날 때까지 전달이 안 됨.
+        self.create_service(
+            Trigger, "/robot/hard_stop", self.handle_hard_stop, callback_group=ReentrantCallbackGroup()
+        )
         self.get_logger().info(f"doosan_robot_control_node ready ({len(self.poses)} poses loaded)")
 
     #20260624 준형, move_type에 따라 이동방식 다르게 적용
@@ -98,6 +113,30 @@ class DoosanRobotControlNode(Node):
         response.success = True
         response.message = f"Moved to {pose_name}"
         return response
+
+    # 지금 진행 중인 movel()을 하드웨어 레벨에서 즉시 정지시킨다 (DR_HOLD: 다시
+    # movel()을 보내면 그대로 이어갈 수 있는 정지 모드 - STO/QSTOP처럼 안전 정지
+    # 상태로 빠지지 않음). 응답을 기다릴 필요 없는 fire-and-forget이라 비동기로만 호출.
+    def handle_hard_stop(self, request, response):
+        if not self.move_stop_client.service_is_ready():
+            response.success = False
+            response.message = "motion/move_stop service not available"
+            self.get_logger().error(response.message)
+            return response
+
+        future = self.move_stop_client.call_async(MoveStop.Request(stop_mode=DR_HOLD))
+        future.add_done_callback(self._log_move_stop_result)
+        response.success = True
+        response.message = "Hard stop requested"
+        self.get_logger().warn(response.message)
+        return response
+
+    def _log_move_stop_result(self, future):
+        try:
+            result = future.result()
+            self.get_logger().warn(f"motion/move_stop -> success={result.success}")
+        except Exception as e:
+            self.get_logger().error(f"motion/move_stop call failed: {e}")
 #end
 
 def main():
@@ -106,6 +145,7 @@ def main():
     executor = MultiThreadedExecutor()
     executor.add_node(control_node)
     executor.add_node(dsr_node)
+    executor.add_node(dsr_stop_node)
 
     try:
         executor.spin()
@@ -114,6 +154,7 @@ def main():
     finally:
         control_node.destroy_node()
         dsr_node.destroy_node()
+        dsr_stop_node.destroy_node()
         rclpy.shutdown()
 
 
