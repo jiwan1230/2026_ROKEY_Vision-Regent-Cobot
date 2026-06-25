@@ -50,7 +50,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
 from interfaces.srv import RequestRecheck, StopTask
@@ -129,6 +129,8 @@ class IntegratedHMINode(Node):
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
         self.set_system_running_client = self.create_client(SetBool, "/robot/set_system_running")
+        self.reset_slot_anchors_client = self.create_client(Trigger, "/vision/reset_slot_anchors")
+        self.reset_handled_slots_client = self.create_client(Trigger, "/vision/reset_handled_slots")
 
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
@@ -160,6 +162,12 @@ class IntegratedHMINode(Node):
 
     def call_stop_task(self): return self.stop_task_client.call_async(StopTask.Request(stop=True))
     def call_request_recheck(self): return self.recheck_client.call_async(RequestRecheck.Request(request=True))
+
+    def call_reset_slot_anchors(self):
+        return self.reset_slot_anchors_client.call_async(Trigger.Request())
+
+    def call_reset_handled_slots(self):
+        return self.reset_handled_slots_client.call_async(Trigger.Request())
 
     def publish_resolution(self, res_str: str):
         msg = String(); msg.data = res_str; self.resolution_pub.publish(msg)
@@ -205,6 +213,7 @@ class HMIDashboardApp(QDialog):
         self.pushButton_3.clicked.connect(self.on_recheck)
         self.pushButton_4.clicked.connect(self.on_emergency_stop)
         self.pushButton_4.setStyleSheet("background-color: red; color: white; font-weight: bold;")
+        self.btn_yolo_toggle_2.clicked.connect(self.on_reset_slot_anchor)
 
         self.comboBox_resolution.addItems(RESOLUTION_OPTIONS)
         self.btn_apply_resolution.clicked.connect(self.on_apply_resolution)
@@ -333,6 +342,16 @@ class HMIDashboardApp(QDialog):
         future = self.node.call_request_recheck()
         self.log("Recheck requested")
         future.add_done_callback(lambda f: self._log_service_result("request_recheck", f))
+
+    def on_reset_slot_anchor(self):
+        # 처음 부트스트랩된 slot anchor가 잘못 잡혔을 때 수동으로 다시 잡게 하는 복구용
+        # 버튼 - 새 트레이로 넘어갈 때 robot_task_manager_node가 자동으로 호출하는 것과
+        # 동일한 두 서비스를 그대로 호출한다.
+        anchors_future = self.node.call_reset_slot_anchors()
+        self.log("Slot anchor reset requested")
+        anchors_future.add_done_callback(lambda f: self._log_service_result("reset_slot_anchors", f))
+        handled_future = self.node.call_reset_handled_slots()
+        handled_future.add_done_callback(lambda f: self._log_service_result("reset_handled_slots", f))
 
     def on_emergency_stop(self):
         future = self.node.call_set_system_running(False)
