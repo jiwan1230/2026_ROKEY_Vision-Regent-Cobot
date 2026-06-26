@@ -46,11 +46,16 @@ from sensor_msgs.msg import CompressedImage
 from ament_index_python.packages import get_package_share_directory
 
 from PyQt5 import uic
-from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton)
+from PyQt5.QtWidgets import (
+    QApplication, QDialog, QMessageBox, QPushButton,
+    QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
+)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
 from std_srvs.srv import SetBool, Trigger
+from rcl_interfaces.srv import SetParameters, GetParameters
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
 from interfaces.srv import RequestRecheck, StopTask
@@ -69,6 +74,67 @@ STATE_COLORS = {
 }
 
 RESOLUTION_OPTIONS = ["640x480", "1280x720", "1920x1080"]
+
+
+def _all_pose_names(num_tubes: int = 3, num_trays: int = 3) -> list:
+    """robot_control_pkg.poses.all_pose_names 와 동일한 목록. 패키지 의존 없이 인라인."""
+    names = [
+        "home_pose",
+        "waste_approach_pose",
+        "waste_release_pose",
+        "tray_tool_stand_approach_pose",
+        "tray_tool_stand_grip_pose",
+        "refill_source_approach_pose",
+        "refill_source_grip_pose",
+    ]
+    for t in range(num_trays):
+        names += [
+            f"tray_transfer_{t}_tool_approach_pose",
+            f"tray_transfer_{t}_tool_preinsert_pose",
+            f"tray_transfer_{t}_tool_insert_pose",
+            f"tray_transfer_{t}_lift_pose",
+            f"tray_transfer_{t}_success_approach_pose",
+            f"tray_transfer_{t}_success_place_pose",
+            f"tray_transfer_{t}_tool_detach_pose",
+        ]
+        for u in range(num_tubes):
+            names += [
+                f"refill_target_{t}_{u}_approach_pose",
+                f"refill_target_{t}_{u}_work_pose",
+                f"refill_target_{t}_{u}_pour_pose",
+                f"dispose_tray_{t}_tube_{u}_approach_pose",
+                f"dispose_tray_{t}_tube_{u}_grip_pose",
+            ]
+    return names
+
+# doosan_robot_control_node에 declare된 스칼라 파라미터 (SetParameters로 전송)
+_DOOSAN_SCALAR = [
+    ('m_velocity',        float),
+    ('m_acceleration',    float),
+    ('d_velocity',        float),
+    ('d_acceleration',    float),
+    ('move_duration_sec', float),
+]
+# UI 전용 계산 파라미터 - YAML 참조용이며 로봇 노드에 declare 안 됨 (전송하지 않음)
+_CALC_PARAMS = [
+    ('tube_gap',   70.0),
+    ('tray_gap',   100.0),
+    ('tube_crood', 1),
+    ('tray_crood', 0),
+]
+# robot_task_manager_node에 declare된 스칼라 파라미터
+_TASK_SCALAR = [
+    ('grip_retry_count',         int),
+    ('recheck_timeout_sec',      float),
+    ('service_call_timeout_sec', float),
+    ('max_pour_attempts',        int),
+    ('normal_confirm_count',     int),
+    ('num_trays',                int),
+]
+
+# 자동 재계산 대상 포즈 타입
+_REFILL_POSE_TYPES  = ('approach_pose', 'work_pose', 'pour_pose')
+_DISPOSE_POSE_TYPES = ('approach_pose', 'grip_pose')
 
 
 # 2026-06-24 soo: CompressedImage(JPEG) → bgr8 numpy 변환
@@ -137,6 +203,15 @@ class IntegratedHMINode(Node):
         self.reset_slot_anchors_client = self.create_client(Trigger, "/vision/reset_slot_anchors")
         self.reset_handled_slots_client = self.create_client(Trigger, "/vision/reset_handled_slots")
 
+        self.get_param_doosan_client = self.create_client(
+            GetParameters, '/doosan_robot_control_node/get_parameters')
+        self.set_param_doosan_client = self.create_client(
+            SetParameters, '/doosan_robot_control_node/set_parameters')
+        self.get_param_task_client = self.create_client(
+            GetParameters, '/robot_task_manager_node/get_parameters')
+        self.set_param_task_client = self.create_client(
+            SetParameters, '/robot_task_manager_node/set_parameters')
+
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
         self.gripper_force_pub = self.create_publisher(Int32, "/gripper/force_cmd", 10)
@@ -187,6 +262,26 @@ class IntegratedHMINode(Node):
     def publish_gripper_force(self, percent: int):
         msg = Int32(); msg.data = percent; self.gripper_force_pub.publish(msg)
 
+    def call_get_param_doosan(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_doosan_client.call_async(req)
+
+    def call_set_param_doosan(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_doosan_client.call_async(req)
+
+    def call_get_param_task(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_task_client.call_async(req)
+
+    def call_set_param_task(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_task_client.call_async(req)
+
 
 # =====================================================================
 # 2. PyQt 기반 UI 화면 클래스 (.ui 파일의 탭 구조를 그대로 사용)
@@ -197,12 +292,16 @@ class HMIDashboardApp(QDialog):
     # thread, not the Qt GUI thread - touching QTextEdit from there directly
     # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
     # marshal the string-only payload onto the GUI thread safely.
-    log_signal = pyqtSignal(str)
+    log_signal           = pyqtSignal(str)
+    _doosan_params_ready = pyqtSignal(object, object)  # (names, pvalues)
+    _task_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
         self.node = node
         self.log_signal.connect(self.log)
+        self._doosan_params_ready.connect(self._apply_doosan_params)
+        self._task_params_ready.connect(self._apply_task_params)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
@@ -250,6 +349,7 @@ class HMIDashboardApp(QDialog):
         self.btn_admin_login.clicked.connect(self._on_admin_login)
         self.btn_admin_logout.clicked.connect(self._on_admin_logout)
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
+        self.btn_apply_robot_param.clicked.connect(self.on_apply_robot_param)
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -257,6 +357,7 @@ class HMIDashboardApp(QDialog):
             (self.tube2_color_box, self.tube2_status_label, self.tube2_val_label),
         ]
 
+        self._build_robot_param_ui()
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -382,6 +483,7 @@ class HMIDashboardApp(QDialog):
             self.stack_admin.setCurrentIndex(1)
             self.lbl_admin_login_status.setText("")
             self.log("시스템 관리자 로그인 성공")
+            self._load_robot_params()
         else:
             self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
             self.input_admin_pw.clear()
@@ -501,6 +603,420 @@ class HMIDashboardApp(QDialog):
 
         self._update_grip_fail_banner()
         self._update_vision_log()
+
+    # -----------------------------------------------------------------
+    # 로봇 파라미터 탭 UI 동적 빌드
+    # .ui의 정적 QLabel 위젯들을 비우고 실제 파라미터 이름 기준 QLineEdit으로 재구성
+    # -----------------------------------------------------------------
+    def _build_robot_param_ui(self):
+        container = self.scrollAreaWidgetContents_robot_param
+        layout = container.layout()
+
+        # 기존 위젯 전부 제거 (btn_apply_robot_param은 마지막에 다시 추가)
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                if w is not self.btn_apply_robot_param:
+                    w.deleteLater()
+
+        edit_style = (
+            "background:#1a1a2e; color:#00e5ff; font-size:13px;"
+            " font-family:monospace; border:1px solid #1565C0;"
+            " border-radius:4px; padding:3px 8px;"
+        )
+        lbl_style = "font-size:13px; font-weight:bold;"
+        hdr_style = (
+            "font-size:12px; font-weight:bold;"
+            " background:#E3F2FD; padding:3px 6px;"
+        )
+
+        # ── Doosan 스칼라 파라미터 그룹 ──────────────────────────────
+        grp_doosan = QGroupBox("Doosan 파라미터 (doosan_robot_control_node)")
+        grid_d = QGridLayout(grp_doosan)
+        grid_d.setHorizontalSpacing(12)
+        grid_d.setVerticalSpacing(8)
+        self._scalar_edits = {'doosan': {}, 'task': {}}
+
+        for row, (name, _) in enumerate(_DOOSAN_SCALAR):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit("0.0")
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            grid_d.addWidget(lbl, row, 0)
+            grid_d.addWidget(edit, row, 1)
+            self._scalar_edits['doosan'][name] = edit
+        layout.addWidget(grp_doosan)
+
+        # ── 자동 재계산용 gap 파라미터 그룹 (UI 전용, 로봇에 전송 안 함) ──
+        grp_calc = QGroupBox("좌표 자동 계산 파라미터 (UI 전용 — 로봇에 전송되지 않음)")
+        grid_c = QGridLayout(grp_calc)
+        grid_c.setHorizontalSpacing(12)
+        grid_c.setVerticalSpacing(8)
+        self._calc_edits = {}
+
+        for row, (name, default) in enumerate(_CALC_PARAMS):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit(str(default))
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            edit.editingFinished.connect(self._on_gap_param_changed)
+            grid_c.addWidget(lbl, row, 0)
+            grid_c.addWidget(edit, row, 1)
+            self._calc_edits[name] = edit
+
+        note = QLabel(
+            "※ tube_gap/tray_gap 변경 시 refill_target / dispose_tray 포즈가 자동 재계산됩니다.\n"
+            "   기준 포즈: refill_target_0_0_* 와 dispose_tray_0_tube_0_* (tray/tube 인덱스 0)"
+        )
+        note.setStyleSheet("font-size:11px; color:#aaaaaa; padding:4px 0;")
+        note.setWordWrap(True)
+        grid_c.addWidget(note, len(_CALC_PARAMS), 0, 1, 2)
+        layout.addWidget(grp_calc)
+
+        # ── Task Manager 스칼라 파라미터 그룹 ────────────────────────
+        grp_task = QGroupBox("Task Manager 파라미터 (robot_task_manager_node)")
+        grid_t = QGridLayout(grp_task)
+        grid_t.setHorizontalSpacing(12)
+        grid_t.setVerticalSpacing(8)
+
+        for row, (name, _) in enumerate(_TASK_SCALAR):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit("0")
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            grid_t.addWidget(lbl, row, 0)
+            grid_t.addWidget(edit, row, 1)
+            self._scalar_edits['task'][name] = edit
+        layout.addWidget(grp_task)
+
+        # ── 포즈 파라미터 그룹 (poses.*) ────────────────────────────
+        grp_poses = QGroupBox("포즈 설정 (poses.*)")
+        grid_p = QGridLayout(grp_poses)
+        grid_p.setHorizontalSpacing(4)
+        grid_p.setVerticalSpacing(3)
+
+        for col, hdr in enumerate(['포즈 이름', 'X(mm)', 'Y(mm)', 'Z(mm)', 'RX(°)', 'RY(°)', 'RZ(°)']):
+            h = QLabel(hdr)
+            h.setStyleSheet(hdr_style)
+            h.setAlignment(Qt.AlignCenter)
+            grid_p.addWidget(h, 0, col)
+
+        self._pose_edits = {}
+        pose_edit_style = (
+            "background:#1a1a2e; color:#00e5ff; font-size:12px;"
+            " font-family:monospace; border:1px solid #1565C0;"
+            " border-radius:3px; padding:2px 5px;"
+        )
+        # 자동 재계산 기준이 되는 베이스 포즈
+        base_pose_keys = set()
+        for pt in _REFILL_POSE_TYPES:
+            base_pose_keys.add(f'refill_target_0_0_{pt}')
+        for pt in _DISPOSE_POSE_TYPES:
+            base_pose_keys.add(f'dispose_tray_0_tube_0_{pt}')
+
+        for row_i, pose_name in enumerate(_all_pose_names(num_tubes=3, num_trays=3), start=1):
+            lbl = QLabel(f"{pose_name}:")
+            lbl.setStyleSheet("font-size:11px; font-weight:bold;")
+            grid_p.addWidget(lbl, row_i, 0)
+
+            edits = []
+            for col_i in range(6):
+                e = QLineEdit("0.0")
+                e.setStyleSheet(pose_edit_style)
+                e.setMinimumWidth(72)
+                grid_p.addWidget(e, row_i, col_i + 1)
+                edits.append(e)
+                # 베이스 포즈 편집 시 자동 재계산 트리거
+                if pose_name in base_pose_keys:
+                    e.editingFinished.connect(self._on_gap_param_changed)
+            self._pose_edits[pose_name] = edits
+
+        layout.addWidget(grp_poses)
+        layout.addWidget(self.btn_apply_robot_param)
+        layout.addStretch()
+
+        # UI 빌드 직후 YAML 값 즉시 로드
+        self._load_from_yaml()
+
+    # -----------------------------------------------------------------
+    # YAML 파일 직접 파싱 — 노드 연결 없이 즉시 초기값 채우기
+    # -----------------------------------------------------------------
+    def _load_from_yaml(self):
+        import yaml
+        try:
+            config_path = os.path.join(
+                get_package_share_directory('robot_control_pkg'),
+                'config', 'robot_params.yaml'
+            )
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+        except Exception as e:
+            self.log(f"[경고] robot_params.yaml 로드 실패: {e}")
+            return
+
+        doosan = config.get('doosan_robot_control_node', {}).get('ros__parameters', {})
+        task   = config.get('robot_task_manager_node',   {}).get('ros__parameters', {})
+
+        # Doosan 스칼라
+        for name, _ in _DOOSAN_SCALAR:
+            if name in doosan:
+                self._scalar_edits['doosan'][name].setText(str(doosan[name]))
+
+        # Gap 계산 파라미터
+        for name, default in _CALC_PARAMS:
+            if name in doosan:
+                self._calc_edits[name].setText(str(doosan[name]))
+
+        # 포즈 (poses.*)
+        for pose_name in _all_pose_names():
+            key = f'poses.{pose_name}'
+            if key in doosan:
+                vals = doosan[key]
+                for i, v in enumerate(vals[:6]):
+                    self._pose_edits[pose_name][i].setText(str(v))
+
+        # Task Manager 스칼라
+        for name, _ in _TASK_SCALAR:
+            if name in task:
+                self._scalar_edits['task'][name].setText(str(task[name]))
+
+        self.log("[로봇 파라미터] YAML 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 초기값 로드 — 관리자 로그인 시 GetParameters 서비스로 실시간 갱신
+    # -----------------------------------------------------------------
+    def _load_robot_params(self):
+        doosan_names = [name for name, _ in _DOOSAN_SCALAR]
+        doosan_names += [f'poses.{n}' for n in _all_pose_names(num_tubes=3, num_trays=3)]
+
+        if self.node.get_param_doosan_client.service_is_ready():
+            fut = self.node.call_get_param_doosan(doosan_names)
+            fut.add_done_callback(
+                lambda f: self._on_doosan_params_loaded(f, doosan_names))
+        else:
+            self.log("[경고] doosan 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+        task_names = [name for name, _ in _TASK_SCALAR]
+        if self.node.get_param_task_client.service_is_ready():
+            fut = self.node.call_get_param_task(task_names)
+            fut.add_done_callback(
+                lambda f: self._on_task_params_loaded(f, task_names))
+        else:
+            self.log("[경고] task_manager 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+    def _on_doosan_params_loaded(self, future, names):
+        # ROS 스핀 스레드에서 호출 — 위젯 직접 접근 금지, 시그널로 GUI 스레드에 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/doosan] 오류: {e}")
+            return
+        self._doosan_params_ready.emit(names, list(result.values))
+
+    def _apply_doosan_params(self, names, pvalues):
+        # GUI 스레드 슬롯 — 위젯 업데이트 안전
+        scalar_keys = {name for name, _ in _DOOSAN_SCALAR}
+        for name, pval in zip(names, pvalues):
+            if name in scalar_keys:
+                if pval.type == ParameterType.PARAMETER_DOUBLE:
+                    self._scalar_edits['doosan'][name].setText(f"{pval.double_value:.4f}")
+                elif pval.type == ParameterType.PARAMETER_INTEGER:
+                    self._scalar_edits['doosan'][name].setText(str(pval.integer_value))
+            elif name.startswith('poses.'):
+                pose_key = name[6:]
+                if pose_key in self._pose_edits and pval.type == ParameterType.PARAMETER_DOUBLE_ARRAY:
+                    for i, v in enumerate(list(pval.double_array_value)[:6]):
+                        self._pose_edits[pose_key][i].setText(f"{v:.4f}")
+        self.log("[로봇 파라미터] doosan 초기값 로드 완료")
+
+    def _on_task_params_loaded(self, future, names):
+        # ROS 스핀 스레드에서 호출 — 시그널로 GUI 스레드에 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/task] 오류: {e}")
+            return
+        self._task_params_ready.emit(names, list(result.values))
+
+    def _apply_task_params(self, names, pvalues):
+        # GUI 스레드 슬롯 — 위젯 업데이트 안전
+        for name, pval in zip(names, pvalues):
+            if name not in self._scalar_edits['task']:
+                continue
+            if pval.type == ParameterType.PARAMETER_DOUBLE:
+                self._scalar_edits['task'][name].setText(f"{pval.double_value:.4f}")
+            elif pval.type == ParameterType.PARAMETER_INTEGER:
+                self._scalar_edits['task'][name].setText(str(pval.integer_value))
+        self.log("[로봇 파라미터] task_manager 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 자동 재계산 — tube_gap / tray_gap / *_crood 또는 베이스 포즈 변경 시
+    #
+    # 기준(base): tray_idx=0, tube_idx=0 포즈
+    # refill_target_{t}_{u}_{type}:
+    #   [tray_crood] = base[tray_crood] + t * tray_gap  (양방향)
+    #   [tube_crood] = base[tube_crood] - u * tube_gap  (음방향)
+    # dispose_tray_{t}_tube_{u}_{type}: 동일 공식
+    # tray_transfer는 실측값이므로 자동 재계산 제외
+    # -----------------------------------------------------------------
+    def _on_gap_param_changed(self):
+        self._recalc_derived_poses()
+
+    def _recalc_derived_poses(self):
+        try:
+            tube_gap = float(self._calc_edits['tube_gap'].text())
+            tray_gap = float(self._calc_edits['tray_gap'].text())
+            tube_ax  = int(float(self._calc_edits['tube_crood'].text()))
+            tray_ax  = int(float(self._calc_edits['tray_crood'].text()))
+        except ValueError:
+            return
+
+        if not (0 <= tube_ax <= 2 and 0 <= tray_ax <= 2):
+            self.log("[경고] tube_crood/tray_crood 는 0(X)·1(Y)·2(Z) 중 하나여야 합니다.")
+            return
+
+        def read_pose(name):
+            if name not in self._pose_edits:
+                return None
+            try:
+                return [float(e.text()) for e in self._pose_edits[name]]
+            except ValueError:
+                return None
+
+        def write_pose(name, vals):
+            if name not in self._pose_edits:
+                return
+            for i, v in enumerate(vals):
+                self._pose_edits[name][i].setText(f"{v:.4f}")
+
+        # refill_target: 기준 = tray 0, tube 0
+        for pt in _REFILL_POSE_TYPES:
+            base = read_pose(f'refill_target_0_0_{pt}')
+            if base is None:
+                continue
+            for t in range(3):
+                for u in range(3):
+                    if t == 0 and u == 0:
+                        continue
+                    derived = list(base)
+                    derived[tray_ax] = base[tray_ax] + t * tray_gap
+                    derived[tube_ax] = base[tube_ax] - u * tube_gap
+                    write_pose(f'refill_target_{t}_{u}_{pt}', derived)
+
+        # dispose_tray: 기준 = tray 0, tube 0
+        for pt in _DISPOSE_POSE_TYPES:
+            base = read_pose(f'dispose_tray_0_tube_0_{pt}')
+            if base is None:
+                continue
+            for t in range(3):
+                for u in range(3):
+                    if t == 0 and u == 0:
+                        continue
+                    derived = list(base)
+                    derived[tray_ax] = base[tray_ax] + t * tray_gap
+                    derived[tube_ax] = base[tube_ax] - u * tube_gap
+                    write_pose(f'dispose_tray_{t}_tube_{u}_{pt}', derived)
+
+    # -----------------------------------------------------------------
+    # Apply 버튼 콜백 — 파라미터 빌드 후 백그라운드 스레드에서 서비스 호출
+    # -----------------------------------------------------------------
+    def on_apply_robot_param(self):
+        def make_param(name, ptype, text):
+            pval = ParameterValue()
+            if ptype == float:
+                pval.type = ParameterType.PARAMETER_DOUBLE
+                pval.double_value = float(text)
+            else:
+                pval.type = ParameterType.PARAMETER_INTEGER
+                pval.integer_value = int(float(text))
+            p = Parameter()
+            p.name = name
+            p.value = pval
+            return p
+
+        # doosan 스칼라
+        doosan_params = []
+        for name, ptype in _DOOSAN_SCALAR:
+            try:
+                doosan_params.append(
+                    make_param(name, ptype, self._scalar_edits['doosan'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+
+        # doosan 포즈 (73개)
+        for pose_name in _all_pose_names(num_tubes=3, num_trays=3):
+            if pose_name not in self._pose_edits:
+                continue
+            try:
+                vals = [float(e.text()) for e in self._pose_edits[pose_name]]
+                pval = ParameterValue()
+                pval.type = ParameterType.PARAMETER_DOUBLE_ARRAY
+                pval.double_array_value = vals
+                p = Parameter()
+                p.name = f'poses.{pose_name}'
+                p.value = pval
+                doosan_params.append(p)
+            except ValueError:
+                self.log(f"[경고] poses.{pose_name} 파싱 실패 — 건너뜀")
+
+        # task_manager 스칼라
+        task_params = []
+        for name, ptype in _TASK_SCALAR:
+            try:
+                task_params.append(
+                    make_param(name, ptype, self._scalar_edits['task'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+
+        self.log(
+            f"파라미터 적용 요청 중 "
+            f"(doosan {len(doosan_params)}개 / task {len(task_params)}개) ...")
+
+        # 서비스 대기 + 호출을 블로킹하지 않도록 백그라운드 스레드에서 실행
+        threading.Thread(
+            target=self._apply_params_thread,
+            args=(doosan_params, task_params),
+            daemon=True,
+        ).start()
+
+    def _apply_params_thread(self, doosan_params, task_params):
+        if doosan_params:
+            if self.node.set_param_doosan_client.wait_for_service(timeout_sec=3.0):
+                fut = self.node.call_set_param_doosan(doosan_params)
+                fut.add_done_callback(
+                    lambda f: self._log_set_param_result('doosan', f))
+            else:
+                self.log_signal.emit(
+                    "[경고] doosan SetParameters 서비스 응답 없음 — "
+                    "doosan_robot_control_node 실행 중인지 확인하세요")
+
+        if task_params:
+            if self.node.set_param_task_client.wait_for_service(timeout_sec=3.0):
+                fut = self.node.call_set_param_task(task_params)
+                fut.add_done_callback(
+                    lambda f: self._log_set_param_result('task_manager', f))
+            else:
+                self.log_signal.emit(
+                    "[경고] task_manager SetParameters 서비스 응답 없음 — "
+                    "robot_task_manager_node 실행 중인지 확인하세요")
+
+    def _log_set_param_result(self, node_name, future):
+        try:
+            result = future.result()
+            failed = [r for r in result.results if not r.successful]
+            if failed:
+                for r in failed:
+                    self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+            else:
+                self.log_signal.emit(
+                    f"[{node_name}] 파라미터 {len(result.results)}개 전체 적용 완료")
+        except Exception as e:
+            self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
 
 
 def main(args=None):
