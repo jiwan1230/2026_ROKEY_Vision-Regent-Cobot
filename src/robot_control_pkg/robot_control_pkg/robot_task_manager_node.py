@@ -121,18 +121,20 @@ class RobotTaskManagerNode(Node):
         self.create_service(
             StopTask, "/robot/stop_task", self.handle_stop_task, callback_group=cb_group
         )
-
-        self.publish_status(RobotStatus.STATUS_IDLE, detail="robot_task_manager_node ready")
+        #20260626 JH, RobotStatus log 추가
+        self.publish_status(RobotStatus.STATUS_IDLE, detail="robot_task_manager_node ready", log="robot_task_manager_node ready")
         self.get_logger().info("robot_task_manager_node ready")
 
     # ---- low-level helpers -------------------------------------------------
 
-    def publish_status(self, status, current_task="", detail=""):
+    #20260626 JH, RobotStatus publish에 log 추가(hmi 출력용)
+    def publish_status(self, status, current_task="", detail="", log=""):
         msg = RobotStatus()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = status
         msg.current_task = current_task
         msg.detail = detail
+        msg.log = log
         self.status_pub.publish(msg)
 
     #20260624 준형, rclpy.spin_until_future_complete()형식으로 변환
@@ -178,8 +180,10 @@ class RobotTaskManagerNode(Node):
     def _check_stop(self):
         if not self.stop_event.is_set():
             return
-        self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume")
-        self.get_logger().warn("Task paused - waiting for stop to clear")
+        #20260626 JH, RobotStatus log 추가
+        log_msg = ("Task paused - waiting for stop to clear")
+        self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume", log=log_msg)
+        self.get_logger().warn(log_msg)
         while self.stop_event.is_set():
             if not rclpy.ok():
                 raise TaskAborted()
@@ -187,10 +191,15 @@ class RobotTaskManagerNode(Node):
         self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
-    def move(self, pose_name, move_type):
+    def move(self, pose_name, move_type, status=None):
         # 하드 스탑이 이 movel() 도중에 걸리면 로봇이 목표 지점에 도달하기 전에
         # 멈춰버릴 수 있음. stop_event가 다시 켜져 있으면(=이동 중 정지 요청이 왔던
         # 것) 재개를 기다렸다가 같은 목표로 다시 이동해서 실제로 도착했는지 보장한다.
+        #20260626 JH, RobotStatus log 추가
+        if status is not None:
+            self.publish_status(status[0], status[1], status[2], log=f"move to {pose_name}, move type : {move_type}")
+        else:
+            self.get_logger().info(f"move to {pose_name}, move type : {move_type}")
         while True:
             self._check_stop()
             result = self._call_sync(
@@ -204,15 +213,25 @@ class RobotTaskManagerNode(Node):
             self.get_logger().warn(f"Move to {pose_name} interrupted by stop; will retry once resumed")
     # end
 
-    def grip(self, command):
+    def grip(self, command, status=None):
         self._check_stop()
+        if status is not None:
+            if command == "OPEN":
+                self.publish_status(RobotStatus.STATUS_GRIPPER_OPEN, status[1], status[2], 'release : gripper open')
+            elif command == "CLOSE":
+                self.publish_status(RobotStatus.STATUS_GRIPPER_CLOSE, status[1], status[2], 'grip : gripper close')
+        else:
+            if command == "OPEN":
+                self.get_logger().info('release : gripper open')
+            elif command == "CLOSE":
+                self.get_logger().info('grip : gripper close')
         result = self._call_sync(self.gripper_client, GripperControl.Request(command=command))
         return result.success
 
-    def grip_with_retry(self, command):
+    def grip_with_retry(self, command, status=None):
         self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
         for attempt in range(self.grip_retry_count + 1):
-            if self.grip(command):
+            if self.grip(command, status):
                 return True
             self.get_logger().warn(f"Gripper {command} failed, attempt {attempt + 1}")
         return False
@@ -230,19 +249,18 @@ class RobotTaskManagerNode(Node):
     # ---- task sequences -----------------------------------------------------
 
     def dispose_tube(self, idx):
-        self.publish_status(RobotStatus.STATUS_MOVING, "dispose", f"approach tube {idx}")
-        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move')
-        self.move(dispose_tube_grip_pose(self.tray_idx, idx), 'down')
-
-        self.publish_status(RobotStatus.STATUS_PICKING, "dispose", f"grip tube {idx}")
-        if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
+        status = [RobotStatus.STATUS_MOVING, "dispose", f"approach tube {idx}"]
+        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move', status)
+        self.move(dispose_tube_grip_pose(self.tray_idx, idx), 'down', status)
+        
+        if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE, status):
             raise TaskFailed(f"Gripper failed to close on tube {idx}")
 
-        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move')
-        self.publish_status(RobotStatus.STATUS_DISPOSING, "dispose", f"move tube {idx} to waste zone")
-        self.move(WASTE_APPROACH_POSE, 'move')
-        self.move(WASTE_RELEASE_POSE, 'down')
-        self.grip(GripperControl.Request.COMMAND_OPEN)
+        status = [RobotStatus.STATUS_DISPOSING, "dispose", f"move tube {idx} to waste zone"]
+        self.move(dispose_tube_approach_pose(self.tray_idx, idx), 'move', status)
+        self.move(WASTE_APPROACH_POSE, 'move', status)
+        self.move(WASTE_RELEASE_POSE, 'down', status)
+        self.grip(GripperControl.Request.COMMAND_OPEN, status)
 
         # 260624 jiwan 폐기 완료를 vision에 알림 (handled_slots override 트리거).
         # 여러 tube를 한 번에 폐기할 수 있어서 tube마다 즉시 알려줘야 함 - 끝나고
@@ -254,81 +272,94 @@ class RobotTaskManagerNode(Node):
             self.get_logger().warn(f"Failed to mark tube {idx} as disposed in vision")
         # end
 
-        self.move(HOME_POSE, 'move')
+        #20260626 JH, 버리고 다시 위로 이동 추가
+        status = [RobotStatus.STATUS_MOVING, "move to home", f"dispose tube {idx} complete"]
+        self.move(WASTE_APPROACH_POSE, 'move', status)
+        self.move(HOME_POSE, 'move', status)
 
     # 260624 jiwan 한 번에 계산해서 붓는 방식 -> 조금 붓고 vision 상태 확인해서
     # 모자르면 더 붓는 반복 루프로 변경. CurrentTubeState 서버가 이제 실제로
     # 구현되어 있어서(/robot/current_tube_state) 매 iteration 호출 가능.
+    #20260626 JH, RobotStatus log 추가
     def refill_tube(self, idx):
         #refill 튜브 위치로 이동, 시약통 집기
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
-        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
-        self.move(REFILL_SOURCE_GRIP_POSE, 'down')
-        self.grip(GripperControl.Request.COMMAND_CLOSE)
-        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
+        status = (RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
+        self.move(REFILL_SOURCE_GRIP_POSE, 'down', status)
+        if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE, status):
+            raise TaskFailed("Gripper failed to close on refill source")
+        self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
 
-        #채울 튜브 위치로 이동
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
-        self.move(refill_target_approach_pose(self.tray_idx, idx), 'move')
-        #20260625 준형, refill_pose(45deg 기울인 위치)로 이동 추가
-        self.move(refill_target_pour_pose(self.tray_idx, idx), 'down')
+        #20260626 JH, TaskFailed 발생 시에도 시약통을 원래 위치로 가져다 놓도록 수정
+        try:
+            #채울 튜브 위치로 이동
+            status = (RobotStatus.STATUS_MOVING, "refill", f"approach tube {idx}")
+            self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
+            #20260625 준형, refill_pose(45deg 기울인 위치)로 이동 추가
+            self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
 
-        max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
-        self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
-        for attempt in range(max_pour_attempts):
-            self._check_stop()
-            result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
-            if result is None or not result.success:
-                raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
-            if result.state == TubeState.STATE_NORMAL:
-                break
-            if result.state == TubeState.STATE_DISPOSE_NEEDED:
-                raise TaskFailed(f"Tube {idx} overflowed during refill")
+            max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
+            self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
+            for attempt in range(max_pour_attempts):
+                self._check_stop()
+                result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
+                if result is None or not result.success:
+                    raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
+                if result.state == TubeState.STATE_NORMAL:
+                    break
+                if result.state == TubeState.STATE_DISPOSE_NEEDED:
+                    raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-            self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate')
-            self._check_stop()
-            time.sleep(0.3)  # simulated dispense duration for one pour increment
-        else:
-            raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
+                self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', status)
+                self._check_stop()
+                time.sleep(0.3)  # simulated dispense duration for one pour increment
+            else:
+                raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
 
-        #시약통 반납
-        #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
-        self.move(refill_target_pour_pose(self.tray_idx, idx), 'down')
-        self.move(refill_target_approach_pose(self.tray_idx, idx), 'move')
-        self.publish_status(RobotStatus.STATUS_MOVING, "refill", "approach refill zone")
-        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
-        self.move(REFILL_SOURCE_GRIP_POSE, 'down')
-        self.grip(GripperControl.Request.COMMAND_OPEN)
-        self.move(REFILL_SOURCE_APPROACH_POSE, 'move')
-
-        self.move(HOME_POSE, 'move')
+            #시약통 반납
+            #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
+            status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+            self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
+            self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
+            
+        finally:
+            try:
+                status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
+                self.move(REFILL_SOURCE_GRIP_POSE, 'down', status)
+                self.grip(GripperControl.Request.COMMAND_OPEN, status)
+                status = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
+                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
+                self.move(HOME_POSE, 'move', status)
+            except Exception as e:
+                self.get_logger().warn(f"Failed to cleanup refill source after failure: {e}")
     # end
 
     def transfer_tray(self):
-        self.publish_status(RobotStatus.STATUS_MOVING, "transfer_normal", "pick up tray tool")
-        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
-        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down')
-        if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE):
+        status = [RobotStatus.STATUS_MOVING, "transfer_normal", "pick up tray tool"]
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
+        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down', status)
+
+        if not self.grip_with_retry(GripperControl.Request.COMMAND_CLOSE, status):
             raise TaskFailed("Gripper failed to grip tray tool")
-        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
 
-        self.publish_status(
-            RobotStatus.STATUS_TRANSFER_NORMAL, "transfer_normal", f"transfer tray {self.tray_idx}"
-        )
-        self.move(tray_transfer_tool_approach_pose(self.tray_idx), 'move')
-        self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray')
-        self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray')
-        self.move(tray_transfer_lift_pose(self.tray_idx), 'move')
+        status = [RobotStatus.STATUS_TRANSFER_TRAY, "transfer_tray", f"transfer tray {self.tray_idx}"]
+        self.move(tray_transfer_tool_approach_pose(self.tray_idx), 'move', status)
+        self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray', status)
+        self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray', status)
+        self.move(tray_transfer_lift_pose(self.tray_idx), 'move', status)
 
-        self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move')
-        self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray')
-        self.move(tray_transfer_tool_detach_pose(self.tray_idx), 'move')
+        self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move', status)
+        self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray', status)
+        self.move(tray_transfer_tool_detach_pose(self.tray_idx), 'move', status)
 
-        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
-        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down')
-        self.grip(GripperControl.Request.COMMAND_OPEN)
-        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move')
-        self.move(HOME_POSE, 'move')
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
+        self.move(TRAY_TOOL_STAND_GRIP_POSE, 'down', status)
+        self.grip(GripperControl.Request.COMMAND_OPEN, status)
+        status = [RobotStatus.STATUS_MOVING, "move to home", f"transfer tray {self.tray_idx} complete"]
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
+        self.move(HOME_POSE, 'move', status)
 
         self._advance_tray()
 

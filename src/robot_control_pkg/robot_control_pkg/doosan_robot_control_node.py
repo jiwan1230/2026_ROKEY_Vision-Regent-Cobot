@@ -116,6 +116,8 @@ class DoosanRobotControlNode(Node):
         self.tcps = {}
         self.current_tcp_name = "default_tcp"
         self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # self.current_tcp_name = "gripper_tcp"
+        # self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
 
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
