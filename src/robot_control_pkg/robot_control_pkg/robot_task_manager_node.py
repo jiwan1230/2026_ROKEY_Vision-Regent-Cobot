@@ -148,7 +148,20 @@ class RobotTaskManagerNode(Node):
         done_event = threading.Event()
         future.add_done_callback(lambda _f: done_event.set())
 
-        if not done_event.wait(timeout_sec):
+        # 0.1초 단위로 polling해서 emergency stop이 걸리면 즉시 TaskAborted.
+        # 기존의 done_event.wait(timeout_sec) 단일 호출은 stop_event를 무시하고
+        # 최대 20초 블로킹 → timeout 후 None 반환 → result.success AttributeError
+        # 로 이어지는 버그가 있었음.
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if done_event.wait(timeout=0.1):
+                break
+            if self.stop_event.is_set():
+                self.get_logger().warn(
+                    f"Service {client.srv_name} aborted by emergency stop"
+                )
+                raise TaskAborted()
+        else:
             self.get_logger().warn(f"Service {client.srv_name} timed out")
             return None
 
