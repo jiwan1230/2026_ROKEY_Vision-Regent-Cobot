@@ -1,0 +1,6 @@
+#20260625 JH, TCP 설정
+string tcp_name          # 예: "GripperDA_v1"
+float64[6] tcp_offset    # 예: [0.0, 0.0, 150.0, 0.0, 0.0, 0.0] (x, y, z, rx, ry, rz)
+---
+bool success             # 성공 여부 (True/False)
+string message           # 결과 메시지

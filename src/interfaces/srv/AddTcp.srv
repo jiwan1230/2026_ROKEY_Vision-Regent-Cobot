@@ -1,0 +1,6 @@
+#20260626 JH, TCP 추가
+string tcp_name
+float64[6] tcp_offset
+---
+bool success
+string message

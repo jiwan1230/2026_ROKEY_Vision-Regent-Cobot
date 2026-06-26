@@ -37,6 +37,13 @@ liquid_height_detector_node:
     row_y_tolerance_px: 35.0
     # end
 
+    # 오른쪽 성공 트레이 등 화면 외곽 노이즈 차단용 ROI (x축 범위, px).
+    # cup/height 박스의 center-x가 이 범위 밖이면 부트스트랩/매칭 모두 무시.
+    # hand 감지에는 적용 안 함 (안전 기능이라 전체 화면 커버해야 함).
+    # 기본값: 앵커 최우측(458) + tolerance(80) + 여유(2) = 540
+    roi_x_min_px: 0.0
+    roi_x_max_px: 540.0
+
     # height 결과 안정화
     height_buffer_size: 5
     height_publish_min_samples: 3

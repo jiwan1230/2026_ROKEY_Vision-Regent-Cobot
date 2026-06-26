@@ -12,12 +12,14 @@ service interface unchanged.
 import time
 import sys
 import rclpy
+import math
+import numpy as np
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_srvs.srv import Trigger
 from dsr_msgs2.srv import MoveStop
-from interfaces.srv import MoveToPose
+from interfaces.srv import MoveToPose, AddTcp, SetTcp
 from robot_control_pkg.poses import all_pose_names
 
 if not rclpy.ok():
@@ -40,10 +42,81 @@ DR_init.__dsr__model = ROBOT_MODEL
 # from DSR_ROBOT2 import movel, move_periodic
 from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD
 # END
+
+#20260625 JH, 가상TCP 적용을 위한 변환 추가
+def euler_zyz_to_matrix(rx, ry, rz):
+    r1, r2, r3 = math.radians(rx), math.radians(ry), math.radians(rz)
+    
+    cz1, sz1 = math.cos(r1), math.sin(r1)
+    cy, sy   = math.cos(r2), math.sin(r2)
+    cz2, sz2 = math.cos(r3), math.sin(r3)
+
+    Rz1 = np.array([[cz1, -sz1, 0], [sz1, cz1, 0], [0, 0, 1]])
+    Ry  = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    Rz2 = np.array([[cz2, -sz2, 0], [sz2, cz2, 0], [0, 0, 1]])
+
+    return Rz1 @ Ry @ Rz2
+
+def matrix_to_euler_zyz(R):
+    sy = math.sqrt(R[0, 2]**2 + R[1, 2]**2)
+    singular = sy < 1e-6
+    
+    if not singular:
+        rx = math.atan2(R[1, 2], R[0, 2])
+        ry = math.atan2(sy, R[2, 2])
+        rz = math.atan2(R[2, 1], -R[2, 0])
+    else:
+        rx = math.atan2(-R[1, 0], R[1, 1])
+        ry = math.atan2(sy, R[2, 2])
+        rz = 0
+
+    return [math.degrees(rx), math.degrees(ry), math.degrees(rz)]
+
+def apply_virtual_tcp(target_pose, tcp_offset):
+    x, y, z, rx, ry, rz = target_pose
+    
+    T_target = np.eye(4)
+    T_target[0:3, 0:3] = euler_zyz_to_matrix(rx, ry, rz)
+    T_target[0:3, 3] = [x, y, z]
+
+    T_tcp = np.eye(4)
+    T_tcp[0:3, 3] = tcp_offset[0:3]
+
+    T_flange = T_target @ np.linalg.inv(T_tcp)
+
+    new_xyz = T_flange[0:3, 3].tolist()
+    new_rx_ry_rz = matrix_to_euler_zyz(T_flange[0:3, 0:3])
+    
+    return new_xyz + new_rx_ry_rz
+
+def get_forward_tcp(flange_pose, tcp_offset):
+    x, y, z, rx, ry, rz = flange_pose
+    
+    T_flange = np.eye(4)
+    T_flange[0:3, 0:3] = euler_zyz_to_matrix(rx, ry, rz)
+    T_flange[0:3, 3] = [x, y, z]
+    
+    T_tcp = np.eye(4)
+    T_tcp[0:3, 3] = tcp_offset[0:3] # 위치 오프셋 적용
+    
+    # Flange 행렬에 TCP 행렬을 곱해서 공간상 위치 도출
+    T_target = T_flange @ T_tcp
+    
+    new_xyz = T_target[0:3, 3].tolist()
+    new_rx_ry_rz = matrix_to_euler_zyz(T_target[0:3, 0:3])
+    
+    return new_xyz + new_rx_ry_rz
+#end
+
 class DoosanRobotControlNode(Node):
     def __init__(self):
         super().__init__("doosan_robot_control_node")
         
+        #20260625 JH, 기본 TCP 설정
+        self.tcps = {}
+        self.current_tcp_name = "default_tcp"
+        self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
         self.declare_parameter("m_acceleration", 60.0)
@@ -62,6 +135,9 @@ class DoosanRobotControlNode(Node):
         self.current_pose_name = "home_pose"
 
         self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
+        #20260625 JH, AddTCP, SetTCP 서비스 추가
+        self.create_service(AddTcp, "/robot/add_tcp", self.handle_add_tcp)
+        self.create_service(SetTcp, "/robot/set_tcp", self.handle_set_tcp)
 
         self.create_service(MoveToPose, "/robot/move_to_pose", self.handle_move_to_pose)
         # move_to_pose와 다른 callback group을 써야 함 - 기본(상호배제) 그룹을 같이 쓰면
@@ -72,23 +148,69 @@ class DoosanRobotControlNode(Node):
         )
         self.get_logger().info(f"doosan_robot_control_node ready ({len(self.poses)} poses loaded)")
 
+    #20260625 JH, add_tcp 함수추가 : 이미 있는 내용인지 확인 후 추가
+    def handle_add_tcp(self, request, response):
+        new_name = request.tcp_name
+        new_offset = list(request.tcp_offset)
+
+        if new_name in self.tcps:
+            response.success = False
+            response.message = f"이미 존재하는 TCP 이름입니다: {new_name}"
+            self.get_logger().warn(response.message)
+        else:
+            self.tcps[new_name] = new_offset
+            response.success = True
+            response.message = f"새로운 TCP가 등록되었습니다: {new_name} -> {new_offset}"
+            self.get_logger().info(response.message)
+            
+        return response
+    
+    #20260625 JH, set_tcp 함수추가
+    def handle_set_tcp(self, request, response):
+        new_name = request.tcp_name
+        new_offset = list(request.tcp_offset) 
+        
+        self.current_tcp_name = new_name
+        self.current_tcp_offset = new_offset
+        
+        response.success = True
+        response.message = f"가상 TCP 변경 완료: {new_name} -> {new_offset}"
+        self.get_logger().info(response.message)
+        return response
+
     #20260624 준형, move_type에 따라 이동방식 다르게 적용
     #20260625 준형, rotate 로직 변경
+    #20260625 JH, TCP 적용 변환 추가
     def move(self, pose_name, target, move_type):
-        self.get_logger().info(f"MOVE -> {pose_name} {target} {move_type}")
+        self.get_logger().info(f"MOVE -> {pose_name} (현재 툴: {self.current_tcp_name})")
+        real_target = apply_virtual_tcp(target, self.current_tcp_offset)
+
         if move_type == 'move':
-            movel(target, vel=self.get_parameter("m_velocity").value, acc=self.get_parameter("m_acceleration").value)
+            movel(real_target, vel=self.get_parameter("m_velocity").value, acc=self.get_parameter("m_acceleration").value)
         elif move_type == 'down':
-            movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+            movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'down_tray':
-            movel(target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+            movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'rotate':
-            rotate_pos = get_current_posx(DR_BASE)[0]
-            rotate_pos[2] += -1.7
-            rotate_pos[4] += -2
-            rotate_pos[3] = 90
-            rotate_pos[5] = -90
-            movel(rotate_pos, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            # 1. 현재 로봇 손목(Flange)의 절대 좌표 가져오기
+            current_flange = get_current_posx(DR_BASE)[0]
+            
+            # 3. 현재 그 끝면 선이 공간상 어디 있는지 계산! (XYZ는 고정될 기준점)
+            edge_pose = get_forward_tcp(current_flange, self.current_tcp_offset)
+            
+            # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
+            # (기존 코드에 있던 각도 변화량 적용)
+            edge_pose[3] = 90      # Rx
+            edge_pose[5] = -90     # Rz
+            edge_pose[2] -= 1.7
+            edge_pose[4] -= 2.0
+            
+            # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
+            real_rotate_target = apply_virtual_tcp(edge_pose, self.current_tcp_offset)
+            
+            self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
+            
+            movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
             move_periodic([0, 0, 0, 0, 0, 3], period=0.5, repeat=3)
         time.sleep(self.move_duration_sec)
     #end

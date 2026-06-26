@@ -20,6 +20,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GripperControl.srv"
   "srv/CurrentTubeState.srv"
   "srv/MarkTubeDisposed.srv"
+  "srv/AddTcp.srv"
+  "srv/SetTcp.srv"
   DEPENDENCIES std_msgs
 )
 
