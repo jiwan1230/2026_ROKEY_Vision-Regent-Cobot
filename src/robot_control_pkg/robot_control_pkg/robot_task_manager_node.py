@@ -300,52 +300,44 @@ class RobotTaskManagerNode(Node):
 
             max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
             self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
-            # 부으면서 상태 확인: 정상이 될 때까지 반복, stop이 풀려도 같은 시도를 다시 시작
             for attempt in range(max_pour_attempts):
-                # stop 대기 - stop이 풀릴 때까지 여기서 블락, 그 후 계속
                 self._check_stop()
-                
-                # 튜브 상태 확인 (stop 중에 실패해도 재개 후 재시도됨)
                 result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
                 if result is None or not result.success:
                     raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
                 if result.state == TubeState.STATE_NORMAL:
-                    self.get_logger().info(f"Tube {idx} reached normal state after attempt {attempt + 1}")
                     break
                 if result.state == TubeState.STATE_DISPOSE_NEEDED:
                     raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-                # 부으면서 대기 (stop 중에 중단되었다면 재개 후 같은 위치로 다시 회전)
                 self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', status)
                 self._check_stop()
                 time.sleep(0.3)  # simulated dispense duration for one pour increment
-                self.get_logger().info(f"Tube {idx} pour attempt {attempt + 1}/{max_pour_attempts}")
             else:
                 raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
-
-            #시약통 반납
-            #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
-            status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
-            self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
-            self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
-            
+        #20260626    
+        except TaskAborted:
+            self.get_logger().warn("Refill aborted by emergency stop; skipping automatic refill cleanup")
+            raise
         finally:
-            # cleanup: stop이 풀려도 시약통을 반드시 원위치에 반납해야 함
-            # (stop 중이면 _check_stop() / move()에서 대기 후 계속 진행됨)
-            try:
-                status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
-                self.move(REFILL_SOURCE_GRIP_POSE, 'down', status)
-                self.grip(GripperControl.Request.COMMAND_OPEN, status)
-                status = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
-                self.move(HOME_POSE, 'move', status)
-            except TaskAborted:
-                # cleanup 중 노드 셧다운 또는 stop → 상위에서 proper handling 위해 re-raise
-                self.get_logger().warn("Refill cleanup interrupted by emergency stop - propagating abort")
-                raise
-            except Exception as e:
-                self.get_logger().warn(f"Failed to cleanup refill source after failure: {e}")
+            if self.stop_event.is_set():
+                self.get_logger().info("Emergency stop active; preserving gripper state and skipping cleanup")
+            else:
+                try:
+                    #시약통 반납
+                    #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
+                    status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
+                    self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
+                    status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+                    self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
+                    self.move(REFILL_SOURCE_GRIP_POSE, 'down', status)
+                    self.grip(GripperControl.Request.COMMAND_OPEN, status)
+                    status = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
+                    self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
+                    self.move(HOME_POSE, 'move', status)
+                except Exception as e:
+                    self.get_logger().warn(f"Failed to cleanup refill source after failure: {e}")
     # end
 
     def transfer_tray(self):

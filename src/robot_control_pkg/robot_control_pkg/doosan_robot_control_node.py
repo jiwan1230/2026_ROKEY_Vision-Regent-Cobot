@@ -119,7 +119,7 @@ class DoosanRobotControlNode(Node):
         # self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.current_tcp_name = "gripper_tcp"
         self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
-        #20260626 JH, 회전할 때 변경할 tcp offset
+
         self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
         #나중에 HMI에서 받아오게 바꿔야 함
@@ -199,10 +199,10 @@ class DoosanRobotControlNode(Node):
         elif move_type == 'rotate':
             # 1. 현재 로봇 손목(Flange)의 절대 좌표 가져오기
             current_flange = get_current_posx(DR_BASE)[0]
-            rotate_tcp = copy(self.current_tcp_offset)
-            result_tcp = [x + y for x, y in zip(rotate_tcp, self.tcp_rotate_offset)]
+            tcp_rotate = [x + y for x, y in zip(self.current_tcp_offset, self.tcp_rotate_offset)]
+
             # 3. 현재 그 끝면 선이 공간상 어디 있는지 계산! (XYZ는 고정될 기준점)
-            edge_pose = get_forward_tcp(current_flange, result_tcp)
+            edge_pose = get_forward_tcp(current_flange, tcp_rotate)
             
             # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
             # (기존 코드에 있던 각도 변화량 적용)
@@ -212,7 +212,7 @@ class DoosanRobotControlNode(Node):
             edge_pose[4] -= 2.0
             
             # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
-            real_rotate_target = apply_virtual_tcp(edge_pose, self.current_tcp_offset)
+            real_rotate_target = apply_virtual_tcp(edge_pose, tcp_rotate)
             
             self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
             
