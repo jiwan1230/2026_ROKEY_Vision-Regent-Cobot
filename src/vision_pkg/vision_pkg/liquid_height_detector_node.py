@@ -12,7 +12,7 @@ import time
 import cv2
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from interfaces.msg import TubeHeight
 # 260624 jiwan bbox_utils.py 수정에 따른 import 문 수정 + 신뢰도를 위한 buffer를 위한 deque 추가
@@ -74,6 +74,10 @@ class LiquidHeightDetectorNode(Node):
         self.declare_parameter("row_y_tolerance_px", 35.0)
         # end
 
+        # 오른쪽 성공 트레이 노이즈 차단용 ROI
+        self.declare_parameter("roi_x_min_px", 0.0)
+        self.declare_parameter("roi_x_max_px", 540.0)
+
         self.yolo_imgsz = int(self.get_parameter("yolo_imgsz").value)
         self.yolo_iou_threshold = float(self.get_parameter("yolo_iou_threshold").value)
         self.yolo_max_det = int(self.get_parameter("yolo_max_det").value)
@@ -84,6 +88,8 @@ class LiquidHeightDetectorNode(Node):
 
         self.slot_x_tolerance_px = float(self.get_parameter("slot_x_tolerance_px").value)
         self.row_y_tolerance_px = float(self.get_parameter("row_y_tolerance_px").value)
+        self.roi_x_min_px = float(self.get_parameter("roi_x_min_px").value)
+        self.roi_x_max_px = float(self.get_parameter("roi_x_max_px").value)
 
         self.hand_detect_consecutive_frames = int(
             self.get_parameter("hand_detect_consecutive_frames").value
@@ -149,6 +155,9 @@ class LiquidHeightDetectorNode(Node):
         self.tube_height_pub = self.create_publisher(TubeHeight, "/vision/tube_height", 10)
         self.hand_detected_pub = self.create_publisher(Bool, "/vision/hand_detected", 10)
         self.camera_status_pub = self.create_publisher(Bool, "/vision/camera_status", 10)
+        # HMI의 "Vision Log" 탭용 - 터미널에만 찍히던 의미있는 이벤트를 사람이 읽을
+        # 문장으로 같이 발행한다. get_logger() 호출은 그대로 두고 추가만 함.
+        self.vision_log_pub = self.create_publisher(String, "/vision/log", 10)
         # 260624 jiwan QoS를 우리 입맛대로 수정
         # self.create_subscription(Image, "/vision/side_image", self.on_image, 10)
         image_qos = QoSProfile(
@@ -197,6 +206,10 @@ class LiquidHeightDetectorNode(Node):
                 )
         self.yolo_image_pub.publish(bgr8_to_image(overlay))
 
+    def _log_event(self, message, level="info"):
+        getattr(self.get_logger(), level)(message)
+        self.vision_log_pub.publish(String(data=message))
+
     def check_camera_timeout(self):
         if self.last_image_time is None:
             return
@@ -204,8 +217,9 @@ class LiquidHeightDetectorNode(Node):
         camera_ok = elapsed <= self.camera_timeout_sec
         self.camera_status_pub.publish(Bool(data=camera_ok))
         if not camera_ok:
-            self.get_logger().warn(
-                f"No camera frames for {elapsed:.1f}s (timeout={self.camera_timeout_sec}s)"
+            self._log_event(
+                f"No camera frames for {elapsed:.1f}s (timeout={self.camera_timeout_sec}s)",
+                level="warn",
             )
 
     # 260624 jiwan 새 트레이 전환 시 slot anchor + 버퍼 전부 초기화
@@ -216,7 +230,7 @@ class LiquidHeightDetectorNode(Node):
             self.conf_buffers[idx].clear()
         response.success = True
         response.message = "slot_anchors reset; will re-bootstrap on next full sighting"
-        self.get_logger().info(response.message)
+        self._log_event(response.message)
         return response
     # end
 
@@ -262,12 +276,17 @@ class LiquidHeightDetectorNode(Node):
         if self.yolo_enabled:
             self._publish_yolo_overlay(frame, cup_boxes, height_boxes, hand_boxes)
 
+        # ROI 필터: cup/height만 적용 (hand는 전체 화면 커버)
+        cup_boxes = [b for b in cup_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
+        height_boxes = [b for b in height_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
+
         # 260624 jiwan hand_detected 수정
         # if self.hand_safety_enabled:
         #     self.hand_detected_pub.publish(Bool(data=len(hand_boxes) > 0))
         hand_seen_now = len(hand_boxes) > 0
 
         if self.hand_safety_enabled:
+            was_detected = self.hand_detected_state
             if hand_seen_now:
                 self.hand_detect_count += 1
                 self.hand_lost_count = 0
@@ -282,6 +301,8 @@ class LiquidHeightDetectorNode(Node):
                 self.hand_detected_state = False
 
             self.hand_detected_pub.publish(Bool(data=self.hand_detected_state))
+            if self.hand_detected_state != was_detected:
+                self._log_event("Hand detected in work area" if self.hand_detected_state else "Hand cleared from work area")
 
         # end
             
@@ -295,7 +316,7 @@ class LiquidHeightDetectorNode(Node):
                 # 카메라에 가까울수록 큼)가 큰 것부터 앞줄로 보고 num_tubes개만 채택
                 front = sorted(confident_cups, key=lambda b: b.y2, reverse=True)[: self.num_tubes]
                 self.slot_anchors = sorted([(b.cx, b.y1) for b in front], key=lambda a: a[0])
-                self.get_logger().info(f"slot_anchors bootstrapped: {self.slot_anchors}")
+                self._log_event(f"slot_anchors bootstrapped: {self.slot_anchors}")
 
         if self.slot_anchors is None:
             tube_slots = [None] * self.num_tubes

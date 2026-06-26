@@ -46,7 +46,7 @@ from sensor_msgs.msg import CompressedImage
 from ament_index_python.packages import get_package_share_directory
 
 from PyQt5 import uic
-from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -98,6 +98,10 @@ class IntegratedHMINode(Node):
         self.gripper_closed = False
         self.grip_failed = False
         self.system_running = False
+        # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
+        # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
+        # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
+        self.vision_log_messages = []
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -125,6 +129,7 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, '/gripper/is_closed', self._on_gripper_state, 10)
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
         self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
+        self.create_subscription(String, '/vision/log', self._on_vision_log, 10)
 
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
         self.recheck_client = self.create_client(RequestRecheck, "/vision/request_recheck")
@@ -156,6 +161,9 @@ class IntegratedHMINode(Node):
     def _on_gripper_state(self, msg): self.gripper_closed = msg.data
     def _on_grip_failed(self, msg): self.grip_failed = msg.data
     def _on_system_running(self, msg): self.system_running = msg.data
+
+    def _on_vision_log(self, msg):
+        self.vision_log_messages.append(msg.data)
 
     def call_set_system_running(self, running: bool):
         return self.set_system_running_client.call_async(SetBool.Request(data=running))
@@ -196,6 +204,7 @@ class HMIDashboardApp(QDialog):
         self.log_signal.connect(self.log)
         self.yolo_enabled = False
         self._grip_fail_shown = False
+        self._vision_log_seen = 0
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
 
@@ -206,6 +215,15 @@ class HMIDashboardApp(QDialog):
             self.node.get_logger().error(f"UI 파일을 찾을 수 없습니다: {ui_path}")
 
         uic.loadUi(ui_path, self)  # 2026-06-24 soo: self.ui(QDialog) 래퍼 제거, 직접 로드
+
+        # QPushButton의 autoDefault는 기본값이 True라서, 어느 탭/페이지에 있든 Enter가
+        # 그 순간 보이는 버튼 하나를 임의로 클릭해버릴 수 있음 (예: 관리자 로그인 중
+        # Enter -> 로그인 성공으로 막 보이게 된 로그아웃 버튼이 같은 키 이벤트에서
+        # 클릭되어 바로 로그아웃되는 버그). Enter는 우리가 명시적으로 연결한 동작
+        # (returnPressed)에만 반응하게, 모든 버튼의 default/autoDefault를 끈다.
+        for btn in self.findChildren(QPushButton):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
 
         # ── 운영 대시보드 탭 버튼 연결 ──────────────────────────────
         self.pushButton.clicked.connect(self.on_start)
@@ -227,28 +245,10 @@ class HMIDashboardApp(QDialog):
         self.btn_clear_fail.clicked.connect(self.on_clear_grip_fail)
 
         # ── 2026-06-24 soo: 시스템 관리자 탭 연결 ───────────────────
-        # 메인 QTabWidget 이름이 사용자에 의해 tabWidget → JOG 로 변경됨
-        # 2026-06-25 soo: self.tabWidget → self.JOG 참조 수정
-        self.JOG.currentChanged.connect(self._on_tab_changed)
+        self.tabWidget.currentChanged.connect(self._on_tab_changed)
         self.btn_admin_login.clicked.connect(self._on_admin_login)
         self.btn_admin_logout.clicked.connect(self._on_admin_logout)
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
-        self.btn_apply_vision_params.clicked.connect(self._on_apply_vision_params)
-
-        # ── 2026-06-25 soo: JOG 탭 연결 ─────────────────────────────
-        # 협동로봇 6축(Joint) 및 TCP(X/Y/Z/A/B/C) 조그 제어
-        self._jog_joint_vals = [0.0] * 6   # J1~J6 현재 각도 (deg)
-        self._jog_tcp_vals = [0.0] * 6     # X/Y/Z(mm), A/B/C(deg) 현재값
-        self.btn_jog_joint_mode.clicked.connect(lambda: self._on_jog_mode('joint'))
-        self.btn_jog_tcp_mode.clicked.connect(lambda: self._on_jog_mode('tcp'))
-        for i, nm in enumerate(['j1', 'j2', 'j3', 'j4', 'j5', 'j6']):
-            getattr(self, f'btn_{nm}_minus').clicked.connect(lambda _, idx=i: self._on_jog_joint(idx, -1))
-            getattr(self, f'btn_{nm}_plus').clicked.connect(lambda _, idx=i: self._on_jog_joint(idx, +1))
-        for i, nm in enumerate(['x', 'y', 'z', 'a', 'b', 'c']):
-            getattr(self, f'btn_tcp_{nm}_minus').clicked.connect(lambda _, idx=i: self._on_jog_tcp(idx, -1))
-            getattr(self, f'btn_tcp_{nm}_plus').clicked.connect(lambda _, idx=i: self._on_jog_tcp(idx, +1))
-        self.slider_jog_speed.valueChanged.connect(self._on_jog_speed_changed)
-        self.btn_jog_stop.clicked.connect(self._on_jog_stop)
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -256,65 +256,11 @@ class HMIDashboardApp(QDialog):
             (self.tube2_color_box, self.tube2_status_label, self.tube2_val_label),
         ]
 
-        # 2026-06-24 soo: .ui 탭의 좌표 설정 위젯에 ROS 파라미터 초기값 채우기
-        self._populate_pose_fields()
-        self.btn_apply_params.clicked.connect(self.apply_params)
-
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_dashboard)
         self.timer.start(150)
-
-    # -----------------------------------------------------------------
-    # 2026-06-24 soo: 좌표 설정 탭 — ROS 파라미터 → UI 초기값 채우기
-    # -----------------------------------------------------------------
-    def _populate_pose_fields(self):
-        pose_field_map = [
-            ('poses.home_pose',
-             [self.input_home_x, self.input_home_y, self.input_home_z,
-              self.input_home_rx, self.input_home_ry, self.input_home_rz]),
-            ('poses.waste_pose',
-             [self.input_waste_x, self.input_waste_y, self.input_waste_z,
-              self.input_waste_rx, self.input_waste_ry, self.input_waste_rz]),
-            ('poses.normal_tray_approach_pose',
-             [self.input_normal_x, self.input_normal_y, self.input_normal_z,
-              self.input_normal_rx, self.input_normal_ry, self.input_normal_rz]),
-            ('poses.tube_0_approach_pose',
-             [self.input_tube0_x, self.input_tube0_y, self.input_tube0_z,
-              self.input_tube0_rx, self.input_tube0_ry, self.input_tube0_rz]),
-        ]
-        for param_name, line_edits in pose_field_map:
-            try:
-                vals = self.node.get_parameter(param_name).value
-            except rclpy.exceptions.ParameterNotDeclaredException:
-                continue
-            for le, val in zip(line_edits, vals):
-                le.setText(str(val))
-
-    def apply_params(self):
-        pose_field_map = [
-            ('poses.home_pose',
-             [self.input_home_x, self.input_home_y, self.input_home_z,
-              self.input_home_rx, self.input_home_ry, self.input_home_rz]),
-            ('poses.waste_pose',
-             [self.input_waste_x, self.input_waste_y, self.input_waste_z,
-              self.input_waste_rx, self.input_waste_ry, self.input_waste_rz]),
-            ('poses.normal_tray_approach_pose',
-             [self.input_normal_x, self.input_normal_y, self.input_normal_z,
-              self.input_normal_rx, self.input_normal_ry, self.input_normal_rz]),
-            ('poses.tube_0_approach_pose',
-             [self.input_tube0_x, self.input_tube0_y, self.input_tube0_z,
-              self.input_tube0_rx, self.input_tube0_ry, self.input_tube0_rz]),
-        ]
-        for param_name, line_edits in pose_field_map:
-            try:
-                new_vals = [float(le.text()) for le in line_edits]
-                self.node.get_logger().info(f"[적용 대기] {param_name}: {new_vals}")
-            except ValueError:
-                QMessageBox.warning(self, "입력 오류", f"'{param_name}'에 숫자가 아닌 값이 있습니다.")
-                return
-        QMessageBox.information(self, "적용 완료", "새로운 로봇 6축 좌표계가 성공적으로 업데이트되었습니다.")
 
     # -----------------------------------------------------------------
     # 로그 출력
@@ -419,8 +365,7 @@ class HMIDashboardApp(QDialog):
     #   - 탭 전환 시 미인증이면 항상 로그인 페이지로 되돌림
     # -----------------------------------------------------------------
     def _on_tab_changed(self, index: int):
-        # 2026-06-25 soo: 메인 QTabWidget 이름 변경 tabWidget → JOG 반영
-        admin_index = self.JOG.indexOf(self.tab_admin)
+        admin_index = self.tabWidget.indexOf(self.tab_admin)
         if index == admin_index and not self._admin_authenticated:
             self.stack_admin.setCurrentIndex(0)
             self.input_admin_id.clear()
@@ -448,65 +393,6 @@ class HMIDashboardApp(QDialog):
         self.input_admin_pw.clear()
         self.lbl_admin_login_status.setText("")
         self.log("시스템 관리자 로그아웃")
-
-    def _on_apply_vision_params(self):
-        # 2026-06-24 soo: Vision 파라미터 탭 — 발행속도/JPEG품질/카메라 인덱스 적용
-        try:
-            rate = float(self.input_publish_rate.text())
-            quality = self.input_jpeg_quality.value()
-            cam_idx = self.input_cam_index.value()
-            self.log(f"[Vision 파라미터 적용] 발행속도={rate}Hz  JPEG품질={quality}  카메라={cam_idx}")
-            QMessageBox.information(self, "적용 완료", f"Vision 파라미터가 반영되었습니다.\n발행속도: {rate} Hz\nJPEG 품질: {quality}\n카메라 인덱스: {cam_idx}")
-        except ValueError:
-            QMessageBox.warning(self, "입력 오류", "발행 속도에 숫자가 아닌 값이 있습니다.")
-
-    # -----------------------------------------------------------------
-    # 2026-06-25 soo: JOG 탭 콜백
-    #   - Joint Mode: J1~J6 각도 조그
-    #   - TCP Mode: X/Y/Z(mm), A/B/C(deg) 위치 조그
-    #   - combo_jog_step으로 스텝 크기 선택 (0.1 / 1.0 / 5.0 / 10.0)
-    # -----------------------------------------------------------------
-    _JOG_BTN_ACTIVE   = "background-color:#1565C0; color:white; font-size:15px; font-weight:bold; border-radius:8px;"
-    _JOG_BTN_INACTIVE = "background-color:#455A64; color:white; font-size:15px; font-weight:bold; border-radius:8px;"
-    _JOG_JOINT_NAMES  = ['j1', 'j2', 'j3', 'j4', 'j5', 'j6']
-    _JOG_TCP_NAMES    = ['x', 'y', 'z', 'a', 'b', 'c']
-    _JOG_TCP_UNITS    = ['mm', 'mm', 'mm', 'deg', 'deg', 'deg']
-
-    def _on_jog_mode(self, mode: str):
-        if mode == 'joint':
-            self.stack_jog.setCurrentIndex(0)
-            self.btn_jog_joint_mode.setStyleSheet(self._JOG_BTN_ACTIVE)
-            self.btn_jog_tcp_mode.setStyleSheet(self._JOG_BTN_INACTIVE)
-        else:
-            self.stack_jog.setCurrentIndex(1)
-            self.btn_jog_joint_mode.setStyleSheet(self._JOG_BTN_INACTIVE)
-            self.btn_jog_tcp_mode.setStyleSheet(self._JOG_BTN_ACTIVE)
-
-    def _get_jog_step(self) -> float:
-        return float(self.combo_jog_step.currentText())
-
-    def _on_jog_joint(self, idx: int, direction: int):
-        step = self._get_jog_step() * direction
-        self._jog_joint_vals[idx] += step
-        nm = self._JOG_JOINT_NAMES[idx]
-        getattr(self, f'lbl_{nm}_val').setText(f"{self._jog_joint_vals[idx]:7.2f}")
-        self.log(f"[JOG Joint] J{idx+1} = {self._jog_joint_vals[idx]:.2f}°  (step {step:+.2f}°)")
-
-    def _on_jog_tcp(self, idx: int, direction: int):
-        step = self._get_jog_step() * direction
-        self._jog_tcp_vals[idx] += step
-        nm = self._JOG_TCP_NAMES[idx]
-        unit = self._JOG_TCP_UNITS[idx]
-        getattr(self, f'lbl_tcp_{nm}_val').setText(f"{self._jog_tcp_vals[idx]:7.2f}")
-        self.log(f"[JOG TCP] {nm.upper()} = {self._jog_tcp_vals[idx]:.2f} {unit}  (step {step:+.2f})")
-
-    def _on_jog_speed_changed(self, value: int):
-        self.lbl_jog_speed_val.setText(f"{value} %")
-
-    def _on_jog_stop(self):
-        self.log("[JOG] STOP 명령 전송")
-        future = self.node.call_stop_task()
-        future.add_done_callback(lambda f: self._log_service_result("jog_stop", f))
 
     # -----------------------------------------------------------------
     # 2026-06-24 soo: 로봇 운전 상태 LED 인디케이터
@@ -548,6 +434,15 @@ class HMIDashboardApp(QDialog):
             self.lbl_grip_fail_alert.setVisible(True)
             self.btn_clear_fail.setVisible(True)
             self.log("⚠ 그립 실패 감지됨")
+
+    def _update_vision_log(self):
+        messages = self.node.vision_log_messages
+        if self._vision_log_seen >= len(messages):
+            return
+        ts = datetime.now().strftime("%H:%M:%S")
+        for text in messages[self._vision_log_seen:]:
+            self.textEdit_vision_log.append(f"[{ts}] {text}")
+        self._vision_log_seen = len(messages)
 
     # -----------------------------------------------------------------
     # 화면 실시간 폴링 (150ms)
@@ -603,6 +498,7 @@ class HMIDashboardApp(QDialog):
             self.label_tube0_8.setStyleSheet("color: white;")
 
         self._update_grip_fail_banner()
+        self._update_vision_log()
 
 
 def main(args=None):

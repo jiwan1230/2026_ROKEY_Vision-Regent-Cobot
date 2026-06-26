@@ -80,8 +80,8 @@ def apply_virtual_tcp(target_pose, tcp_offset):
     T_target[0:3, 3] = [x, y, z]
 
     T_tcp = np.eye(4)
-    T_tcp[0:3, 3] = tcp_offset
-    
+    T_tcp[0:3, 3] = tcp_offset[0:3]
+
     T_flange = T_target @ np.linalg.inv(T_tcp)
 
     new_xyz = T_flange[0:3, 3].tolist()
@@ -202,8 +202,10 @@ class DoosanRobotControlNode(Node):
             edge_pose[4] -= 2
             # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
             # (기존 코드에 있던 각도 변화량 적용)
-            edge_pose[3] = 90      # Rz1
-            edge_pose[5] = -90     # Rz2
+            edge_pose[3] = 90      # Rx
+            edge_pose[5] = -90     # Rz
+            edge_pose[2] -= 1.7
+            edge_pose[4] -= 2.0
             
             # 원하는 위치로 이동 적용
 

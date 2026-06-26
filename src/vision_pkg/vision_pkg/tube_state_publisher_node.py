@@ -20,6 +20,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_msgs.msg import String
 
 from interfaces.msg import TubeHeight, TubeState
 from interfaces.srv import RequestRecheck
@@ -65,6 +66,11 @@ class TubeStatePublisherNode(Node):
         self.handled_slots = [False] * self.num_tubes
         # end
 
+        # 260625 jiwan tube state 변화/handled_slots 리셋 등을 HMI의 Vision Log
+        # 탭에 사람이 읽을 문장으로 같이 보여주기 위함. get_logger()는 그대로 둠.
+        self.vision_log_pub = self.create_publisher(String, "/vision/log", 10)
+        self.last_per_tube_state = {}
+
         cb_group = ReentrantCallbackGroup()
         self.state_pub = self.create_publisher(TubeState, "/vision/tube_state", 10)
         self.create_subscription(
@@ -97,6 +103,17 @@ class TubeStatePublisherNode(Node):
             f"refill_min={self.refill_min}, overflow_max={self.overflow_max})"
         )
 
+    _STATE_NAMES = {
+        TubeState.STATE_REFILL_NEEDED: "REFILL_NEEDED",
+        TubeState.STATE_NORMAL: "NORMAL",
+        TubeState.STATE_DISPOSE_NEEDED: "DISPOSE_NEEDED",
+        TubeState.STATE_UNKNOWN: "UNKNOWN",
+    }
+
+    def _log_event(self, message):
+        self.get_logger().info(message)
+        self.vision_log_pub.publish(String(data=message))
+
     def classify(self, idx, height, confidence):
         # 260624 jiwan 폐기 완료로 알려진 슬롯은 vision 검출과 무관하게 NORMAL 취급
         if self.handled_slots[idx]:
@@ -128,6 +145,11 @@ class TubeStatePublisherNode(Node):
 
         self.get_logger().debug(f"tube_index={out.tube_index} state={out.state}")
 
+        for idx, state in zip(out.tube_index, out.state):
+            if self.last_per_tube_state.get(idx) != state:
+                self.last_per_tube_state[idx] = state
+                self._log_event(f"tube {idx} state -> {self._STATE_NAMES.get(state, state)}")
+
     def handle_request_recheck(self, request, response):
         if not request.request:
             response.success = True
@@ -158,7 +180,7 @@ class TubeStatePublisherNode(Node):
         self.handled_slots[idx] = True
         response.success = True
         response.message = f"tube {idx} marked disposed"
-        self.get_logger().info(response.message)
+        self._log_event(response.message)
         return response
 
     # 260624 jiwan 새 트레이로 바뀌었을 때 handled_slots 전부 초기화 (수동 훅,
@@ -167,7 +189,7 @@ class TubeStatePublisherNode(Node):
         self.handled_slots = [False] * self.num_tubes
         response.success = True
         response.message = "handled_slots reset"
-        self.get_logger().info(response.message)
+        self._log_event(response.message)
         return response
     # end
 

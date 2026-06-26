@@ -109,7 +109,8 @@ doosan_robot_control_node:
     # ===== Common =====
     poses.home_pose: [492.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.waste_approach_pose: [273.84, -223.76, 220.0, 90.0, 180.0, -90.0]
-    poses.waste_release_pose: [273.84, -223.76, 70.81, 90.0, 180.0, -90.0]
+    # 260626 jiwan 
+    poses.waste_release_pose: [273.84, -223.76, 55.0, 90.0, 180.0, -90.0]
 
     # ===== Tray tool stand (fixed, no tray_idx) =====
     poses.tray_tool_stand_approach_pose: [350.66, -227.73, 220.0, 90.0, 180.0, -90.0]
@@ -117,7 +118,7 @@ doosan_robot_control_node:
 
     # ===== Refill source (fixed, no tray_idx) =====
     poses.refill_source_approach_pose: [273.84, 222.0, 220.0, 90.0, 180.0, -90.0]
-    poses.refill_source_grip_pose: [273.84, 222.0, 70.81, 90.0, 180.0, -90.0]
+    poses.refill_source_grip_pose: [273.84, 222.0, 55.0, 90.0, 180.0, -90.0]
 
     # ===== Tray transfer - tray 0 (실측) =====
     poses.tray_transfer_0_tool_approach_pose: [351.62, 73.39, 220.0, 90.0, 180.0, -90.0]
@@ -149,14 +150,17 @@ doosan_robot_control_node:
     # ===== Refill target - tray 0 (실측, tube_gap=70 / Y축 패턴) =====
     poses.refill_target_0_0_approach_pose: [492.01, 149.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_0_0_work_pose: [492.01, 149.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_0_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    # 260626 jiwan tcp 보정 테스트
+    # poses.refill_target_0_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_0_0_pour_pose: [492.0, 169.0, 200.0, 90.0, 135.0, -90.0]
     poses.refill_target_0_1_approach_pose: [492.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_0_1_work_pose: [492.01, 79.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_0_1_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+    poses.refill_target_0_1_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
     poses.refill_target_0_2_approach_pose: [492.01, 9.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_0_2_work_pose: [492.01, 9.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_0_2_pour_pose: [492.0, -41.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
-
+    poses.refill_target_0_2_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+    # end
+    
     # ===== Refill target - tray 1 (TODO: 실측 필요, tray 0 + tray_gap(100, X축) 추정) =====
     poses.refill_target_1_0_approach_pose: [592.01, 149.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_1_0_work_pose: [592.01, 149.0, 115.0, 90.0, 180.0, -90.0]
@@ -211,7 +215,7 @@ robot_task_manager_node:
     recheck_timeout_sec: 5.0
     service_call_timeout_sec: 20.0
     # 260624 jiwan refill 반복 보충 루프 안전 상한 (무한루프 방지)
-    max_pour_attempts: 5
+    max_pour_attempts: 20
     # end
 
 main_decision_node:
