@@ -152,36 +152,36 @@ doosan_robot_control_node:
     poses.refill_target_0_0_work_pose: [492.01, 149.0, 115.0, 90.0, 180.0, -90.0]
     # 260626 jiwan tcp 보정 테스트
     # poses.refill_target_0_0_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]
-    poses.refill_target_0_0_pour_pose: [492.0, 169.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_0_0_pour_pose: [492.0, 184.0, 175.0, 90.0, 135.0, -90.0]
     poses.refill_target_0_1_approach_pose: [492.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_0_1_work_pose: [492.01, 79.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_0_1_pour_pose: [492.0, 99.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+    poses.refill_target_0_1_pour_pose: [492.0, 114.0, 175.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
     poses.refill_target_0_2_approach_pose: [492.01, 9.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_0_2_work_pose: [492.01, 9.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_0_2_pour_pose: [492.0, 29.0, 200.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
+    poses.refill_target_0_2_pour_pose: [492.0, 44.0, 175.0, 90.0, 135.0, -90.0]  # TODO: 실측 필요
     # end
     
     # ===== Refill target - tray 1 (TODO: 실측 필요, tray 0 + tray_gap(100, X축) 추정) =====
     poses.refill_target_1_0_approach_pose: [592.01, 149.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_1_0_work_pose: [592.01, 149.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_1_0_pour_pose: [592.0, 169.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_1_0_pour_pose: [592.0, 184.0, 175.0, 90.0, 135.0, -90.0]
     poses.refill_target_1_1_approach_pose: [592.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_1_1_work_pose: [592.01, 79.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_1_1_pour_pose: [592.0, 99.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_1_1_pour_pose: [592.0, 114.0, 175.0, 90.0, 135.0, -90.0]
     poses.refill_target_1_2_approach_pose: [592.01, 9.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_1_2_work_pose: [592.01, 9.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_1_2_pour_pose: [592.0, 29.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_1_2_pour_pose: [592.0, 44.0, 175.0, 90.0, 135.0, -90.0]
 
     # ===== Refill target - tray 2 (TODO: 실측 필요, tray 0 + tray_gap(400, X축) 추정) =====
     poses.refill_target_2_0_approach_pose: [692.01, 149.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_2_0_work_pose: [692.01, 149.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_2_0_pour_pose: [692.0, 169.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_2_0_pour_pose: [692.0, 184.0, 175.0, 90.0, 135.0, -90.0]
     poses.refill_target_2_1_approach_pose: [692.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_2_1_work_pose: [692.01, 99.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_2_1_pour_pose: [692.0, 29.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_2_1_pour_pose: [692.0, 114.0, 175.0, 90.0, 135.0, -90.0]
     poses.refill_target_2_2_approach_pose: [692.01, 9.0, 220.0, 90.0, 180.0, -90.0]
     poses.refill_target_2_2_work_pose: [692.01, 9.0, 115.0, 90.0, 180.0, -90.0]
-    poses.refill_target_2_2_pour_pose: [692.0, 29.0, 200.0, 90.0, 135.0, -90.0]
+    poses.refill_target_2_2_pour_pose: [692.0, 44.0, 175.0, 90.0, 135.0, -90.0]
 
     # ===== Dispose target - tray 0 (실측) =====
     poses.dispose_tray_0_tube_0_approach_pose: [490.0, 150.0, 220.0, 90.0, 180.0, -90.0]

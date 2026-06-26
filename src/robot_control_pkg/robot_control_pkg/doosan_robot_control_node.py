@@ -41,7 +41,7 @@ DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 # 260625 준형님 코드로 부분 수정
 # from DSR_ROBOT2 import movel, move_periodic
-from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD
+from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD, wait
 # END
 
 #20260625 JH, 가상TCP 적용을 위한 변환 추가
@@ -203,7 +203,7 @@ class DoosanRobotControlNode(Node):
 
             edge_pose = get_forward_tcp(current_flange, tcp_rotate)
 
-            edge_pose[2] -= 1.7
+            edge_pose[2] -= 1.33
             edge_pose[3] = 90.0   # A (Rx)
             edge_pose[4] -= 2.0
             edge_pose[5] = -90.0  # C (Rz)
@@ -213,7 +213,8 @@ class DoosanRobotControlNode(Node):
             self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
 
             movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
-            move_periodic([0, 0, 0, 0, 0, 3], period=0.5, repeat=3)
+            move_periodic([0, 0, 0, 0, 0, 5], period=0.5, repeat=3)
+            wait(0.5)
         time.sleep(self.move_duration_sec)
     #end
     

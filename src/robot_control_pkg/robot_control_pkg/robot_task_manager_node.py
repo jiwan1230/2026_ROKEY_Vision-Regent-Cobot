@@ -69,7 +69,7 @@ class RobotTaskManagerNode(Node):
         self.declare_parameter("max_pour_attempts", 5)
         # NORMAL 판정을 N번 연속으로 받아야 refill 완료로 인정.
         # YOLO 순간 오차로 인한 조기 종료 방지.
-        self.declare_parameter("normal_confirm_count", 3)
+        self.declare_parameter("normal_confirm_count", 5)
         # end
         # 트레이는 깊이 방향으로 3줄(num_trays) 쌓여있고, 항상 맨 앞줄(tray_idx)만
         # 활성 상태. transfer_tray()가 끝날 때마다 tray_idx를 올려서 다음 줄로 넘어감.

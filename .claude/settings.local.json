@@ -18,7 +18,14 @@
       "Bash(echo \"exit: $?\")",
       "Bash(gh --version)",
       "Bash(gh auth *)",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(grep -n \"^def set_tcp\\\\|^def set_tool\\\\|^def get_tcp\\\\|^def get_tool\\\\|def set_robot_tcp\\\\|def set_robot_tool\" /home/jiwan/ws_cobot_pjt/ws_edu/src/doosan-robot2/dsr_common2/imp/DSR_ROBOT2.py)",
+      "Read(//home/jiwan/ws_cobot_pjt/ws_edu/src/doosan-robot2/dsr_common2/imp/**)",
+      "Read(//home/jiwan/Downloads/**)",
+      "Bash(cp src/hmi_pkg/ui/vision_camera_state.ui /home/jiwan/.claude/jobs/00ae1463/tmp/vision_camera_state.ui.bak)",
+      "Bash(cp /home/jiwan/Downloads/vision_camera_state_final.ui src/hmi_pkg/ui/vision_camera_state.ui)"
     ]
   }
 }

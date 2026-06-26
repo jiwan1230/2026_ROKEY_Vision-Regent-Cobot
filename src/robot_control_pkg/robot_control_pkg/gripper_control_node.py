@@ -85,6 +85,7 @@ class GripperControlNode(Node):
         while time.time() - start < timeout_sec:
             status = self._read_status_register()
             if status is not None:
+                time.sleep(0.3)
                 busy = status & 0x01
                 if not busy:
                     elapsed = time.time() - start
