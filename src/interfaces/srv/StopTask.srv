@@ -1,6 +1,9 @@
 # Emergency stop / task abort request
+# is_emergency=True : HMI emergency stop (refill 중이면 시약통 반납 후 완전 종료)
+# is_emergency=False: 손 감지 등 일시 정지 (손 사라지면 이어서 진행)
 
 bool stop
+bool is_emergency
 ---
 bool success
 string message

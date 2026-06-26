@@ -168,7 +168,8 @@ class IntegratedHMINode(Node):
     def call_set_system_running(self, running: bool):
         return self.set_system_running_client.call_async(SetBool.Request(data=running))
 
-    def call_stop_task(self): return self.stop_task_client.call_async(StopTask.Request(stop=True))
+    def call_stop_task(self, is_emergency=False):
+        return self.stop_task_client.call_async(StopTask.Request(stop=True, is_emergency=is_emergency))
     def call_request_recheck(self): return self.recheck_client.call_async(RequestRecheck.Request(request=True))
 
     def call_reset_slot_anchors(self):
@@ -303,7 +304,7 @@ class HMIDashboardApp(QDialog):
         future = self.node.call_set_system_running(False)
         self.log("EMERGENCY STOP pressed")
         future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
-        stop_future = self.node.call_stop_task()
+        stop_future = self.node.call_stop_task(is_emergency=True)
         stop_future.add_done_callback(lambda f: self._log_service_result("stop_task", f))
 
     def _log_service_result(self, name, future):

@@ -100,7 +100,7 @@ class MainDecisionNode(Node):
             return
         if msg.data and not was_detected and self.busy:
             self.get_logger().warn("Hand detected in work area - requesting emergency stop")
-            self.stop_task_client.call_async(StopTask.Request(stop=True))
+            self.stop_task_client.call_async(StopTask.Request(stop=True, is_emergency=False))
         elif not msg.data and was_detected and self.busy:
             self.get_logger().warn("Hand cleared from work area - resuming paused task")
             self.stop_task_client.call_async(StopTask.Request(stop=False))

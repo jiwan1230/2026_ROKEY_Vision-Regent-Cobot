@@ -79,6 +79,9 @@ class RobotTaskManagerNode(Node):
         #end
 
         self.stop_event = threading.Event()
+        # 손 감지(is_emergency=False)와 구별되는 HMI emergency stop 전용 이벤트.
+        # pour 루프에서 이 둘을 다르게 처리: 손 감지는 세우고 재개, emergency는 세우고 반납.
+        self.emergency_event = threading.Event()
         cb_group = ReentrantCallbackGroup()
 
         self.status_pub = self.create_publisher(RobotStatus, "/robot/status", 10)
@@ -306,13 +309,18 @@ class RobotTaskManagerNode(Node):
             self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
             pour_status = (RobotStatus.STATUS_REFILLING, "refill", f"pour into tube {idx}")
             for attempt in range(max_pour_attempts):
-                # stop이 걸려있으면: 기울어진 상태일 수 있으므로 먼저 세우고 대기.
+                # stop이 걸려있으면 시약통을 먼저 세운 뒤 종류에 따라 처리.
                 # _check_stop()을 먼저 호출하면 move 없이 바로 블락되므로,
-                # ignore_stop=True로 down 자세 복귀를 먼저 실행한 뒤 대기.
+                # ignore_stop=True로 down 자세 복귀를 먼저 실행.
                 if self.stop_event.is_set():
-                    self.get_logger().warn(f"Pour paused (tube {idx}): uprighting bottle before wait")
+                    self.get_logger().warn(f"Pour stopped (tube {idx}): uprighting bottle")
                     self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
-                    self._check_stop()  # 손/stop 해제까지 대기
+                    if self.emergency_event.is_set():
+                        # HMI emergency stop: 시약통 반납 후 완전 종료 (finally에서 처리)
+                        raise TaskAborted()
+                    # 손 감지: 손이 사라질 때까지 대기 후 pour 재개
+                    self._check_stop()
+                    continue  # state 재확인부터
 
                 result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
                 if result is None or not result.success:
@@ -326,8 +334,10 @@ class RobotTaskManagerNode(Node):
 
                 # rotate 완료 직후 stop 감지 시 즉시 세우기 (기울어진 채 대기 방지)
                 if self.stop_event.is_set():
-                    self.get_logger().warn(f"Stop detected after rotate (tube {idx}): uprighting immediately")
+                    self.get_logger().warn(f"Stop after rotate (tube {idx}): uprighting immediately")
                     self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
+                    if self.emergency_event.is_set():
+                        raise TaskAborted()
                     self._check_stop()
                     continue  # 대기 후 state 재확인부터
 
@@ -455,6 +465,8 @@ class RobotTaskManagerNode(Node):
     def handle_stop_task(self, request, response):
         if request.stop:
             self.stop_event.set()
+            if request.is_emergency:
+                self.emergency_event.set()
             # 체크포인트(다음 move/grip 호출 전)를 기다리지 않고, 지금 실제로 진행 중인
             # movel()이 있으면 doosan_robot_control_node가 하드웨어 레벨로 즉시 멈추게 함.
             # 응답을 기다릴 필요는 없어서 fire-and-forget.
@@ -463,10 +475,12 @@ class RobotTaskManagerNode(Node):
             else:
                 self.get_logger().warn("/robot/hard_stop not available; falling back to checkpoint-only stop")
             response.success = True
-            response.message = "Stop requested; current motion will halt immediately"
-            self.get_logger().warn("Emergency stop requested")
+            kind = "Emergency stop" if request.is_emergency else "Hand-detected stop"
+            response.message = f"{kind} requested; current motion will halt immediately"
+            self.get_logger().warn(response.message)
         else:
             self.stop_event.clear()
+            self.emergency_event.clear()
             response.success = True
             response.message = "Resume requested; any paused task will continue"
             self.get_logger().warn("Resume requested")
