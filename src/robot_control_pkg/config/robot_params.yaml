@@ -109,6 +109,7 @@ doosan_robot_control_node:
     # ===== Common =====
     poses.home_pose: [492.01, 79.0, 220.0, 90.0, 180.0, -90.0]
     poses.waste_approach_pose: [273.84, -223.76, 220.0, 90.0, 180.0, -90.0]
+    # 260626 jiwan 
     poses.waste_release_pose: [273.84, -223.76, 55.0, 90.0, 180.0, -90.0]
 
     # ===== Tray tool stand (fixed, no tray_idx) =====
@@ -214,7 +215,7 @@ robot_task_manager_node:
     recheck_timeout_sec: 5.0
     service_call_timeout_sec: 20.0
     # 260624 jiwan refill 반복 보충 루프 안전 상한 (무한루프 방지)
-    max_pour_attempts: 5
+    max_pour_attempts: 20
     # end
 
 main_decision_node:
