@@ -81,6 +81,8 @@ def apply_virtual_tcp(target_pose, tcp_offset):
     T_target[0:3, 3] = [x, y, z]
 
     T_tcp = np.eye(4)
+    # ⭐️ 위치(XYZ)뿐만 아니라 툴의 각도(Rx, Ry, Rz) 오프셋도 행렬에 적용!
+    T_tcp[0:3, 0:3] = euler_zyz_to_matrix(tcp_offset[3], tcp_offset[4], tcp_offset[5])
     T_tcp[0:3, 3] = tcp_offset[0:3]
 
     T_flange = T_target @ np.linalg.inv(T_tcp)
@@ -98,9 +100,10 @@ def get_forward_tcp(flange_pose, tcp_offset):
     T_flange[0:3, 3] = [x, y, z]
     
     T_tcp = np.eye(4)
-    T_tcp[0:3, 3] = tcp_offset[0:3] # 위치 오프셋 적용
+    # ⭐️ 여기도 각도(Rx, Ry, Rz) 오프셋을 행렬에 적용!
+    T_tcp[0:3, 0:3] = euler_zyz_to_matrix(tcp_offset[3], tcp_offset[4], tcp_offset[5])
+    T_tcp[0:3, 3] = tcp_offset[0:3]
     
-    # Flange 행렬에 TCP 행렬을 곱해서 공간상 위치 도출
     T_target = T_flange @ T_tcp
     
     new_xyz = T_target[0:3, 3].tolist()
@@ -197,21 +200,22 @@ class DoosanRobotControlNode(Node):
         elif move_type == 'down_tray':
             movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'rotate':
-            # 1. 현재 로봇 손목(Flange)의 절대 좌표 가져오기
             current_flange = get_current_posx(DR_BASE)[0]
             tcp_rotate = [x + y for x, y in zip(self.current_tcp_offset, self.tcp_rotate_offset)]
-
-            # 3. 현재 그 끝면 선이 공간상 어디 있는지 계산! (XYZ는 고정될 기준점)
+            
+            # 2. 물체 끝선의 현재 절대 좌표 도출
             edge_pose = get_forward_tcp(current_flange, tcp_rotate)
             
-            # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
-            # (기존 코드에 있던 각도 변화량 적용)
-            edge_pose[3] = 90      # Rx
-            edge_pose[5] = -90     # Rz
+            # ----------------------------------------------------
+            # 3. ⭐️ 행렬 회전 대신, 펜던트처럼 오일러 각도를 직접 지정!
+            # (XYZ는 그대로 두고, 각도만 원하는 목표값으로 덮어씁니다)
             edge_pose[2] -= 1.7
-            edge_pose[4] -= 2.0
+            edge_pose[3] = 90.0   # A (Rx)
+            edge_pose[4] -= 2
+            edge_pose[5] = -90.0  # C (Rz)
+            # ----------------------------------------------------
             
-            # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
+            # 4. 각도가 변경된 끝선을 바탕으로 손목(Flange) 위치 역산
             real_rotate_target = apply_virtual_tcp(edge_pose, tcp_rotate)
             
             self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
