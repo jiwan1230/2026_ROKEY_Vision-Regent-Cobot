@@ -98,6 +98,7 @@ class IntegratedHMINode(Node):
         self.gripper_closed = False
         self.grip_failed = False
         self.system_running = False
+        self.force_detected = False
         # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
         # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
         # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
@@ -129,6 +130,7 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, '/gripper/is_closed', self._on_gripper_state, 10)
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
         self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
+        self.create_subscription(Bool, '/robot/force_detected', self._on_force_detected, 10)
         self.create_subscription(String, '/vision/log', self._on_vision_log, 10)
 
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
@@ -161,6 +163,7 @@ class IntegratedHMINode(Node):
     def _on_gripper_state(self, msg): self.gripper_closed = msg.data
     def _on_grip_failed(self, msg): self.grip_failed = msg.data
     def _on_system_running(self, msg): self.system_running = msg.data
+    def _on_force_detected(self, msg): self.force_detected = msg.data
 
     def _on_vision_log(self, msg):
         self.vision_log_messages.append(msg.data)
@@ -198,14 +201,18 @@ class HMIDashboardApp(QDialog):
     # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
     # marshal the string-only payload onto the GUI thread safely.
     log_signal = pyqtSignal(str)
+    force_alert_signal = pyqtSignal(bool)
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
         self.node = node
         self.log_signal.connect(self.log)
+        self.force_alert_signal.connect(self._on_force_alert)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
+        self._force_shown = False
+        self._force_dialog = None
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
 
@@ -274,6 +281,10 @@ class HMIDashboardApp(QDialog):
     # 운영 버튼 콜백
     # -----------------------------------------------------------------
     def on_start(self):
+        # 외력 감지 팝업이 떠있으면 Start로 해제
+        if self._force_dialog and self._force_dialog.isVisible():
+            self._force_dialog.close()
+        self._force_shown = False
         future = self.node.call_set_system_running(True)
         self.log("Start pressed - enabling automatic vision-driven control")
         future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
@@ -429,6 +440,27 @@ class HMIDashboardApp(QDialog):
         self.lbl_led_run_text.setStyleSheet(tr)
         self.lbl_led_error_text.setStyleSheet(te)
 
+    def _on_force_alert(self, detected: bool):
+        if detected and not self._force_shown:
+            self._force_shown = True
+            self._force_dialog = QMessageBox(self)
+            self._force_dialog.setWindowTitle("⚠ 외력 감지!")
+            self._force_dialog.setText(
+                "로봇에 예상치 못한 외력이 감지되었습니다.\n\n"
+                "로봇 상태를 확인한 후\n"
+                "START 버튼을 눌러 작업을 재개하세요."
+            )
+            self._force_dialog.setIcon(QMessageBox.Warning)
+            self._force_dialog.setStandardButtons(QMessageBox.Ok)
+            self._force_dialog.setWindowModality(Qt.NonModal)
+            self._force_dialog.show()
+            self.log("⚠ 외력 감지! 담당자 확인 후 START를 눌러 재개하세요.")
+        elif not detected and self._force_shown:
+            self._force_shown = False
+            if self._force_dialog and self._force_dialog.isVisible():
+                self._force_dialog.close()
+            self.log("외력 해소됨 - START로 재개 가능")
+
     def _update_grip_fail_banner(self):
         if self.node.grip_failed and not self._grip_fail_shown:
             self._grip_fail_shown = True
@@ -501,6 +533,9 @@ class HMIDashboardApp(QDialog):
 
         self._update_grip_fail_banner()
         self._update_vision_log()
+        # 외력 감지 상태 변화 시 팝업 signal 발행
+        if self.node.force_detected != self._force_shown:
+            self.force_alert_signal.emit(self.node.force_detected)
 
 
 def main(args=None):

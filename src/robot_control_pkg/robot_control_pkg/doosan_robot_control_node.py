@@ -18,6 +18,7 @@ import numpy as np
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
+from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 from dsr_msgs2.srv import MoveStop
 from interfaces.srv import MoveToPose, AddTcp, SetTcp
@@ -41,7 +42,7 @@ DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 # 260625 준형님 코드로 부분 수정
 # from DSR_ROBOT2 import movel, move_periodic
-from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD, wait
+from DSR_ROBOT2 import movel, move_periodic, get_current_posx, get_external_torque, DR_BASE, DR_HOLD, wait
 # END
 
 #20260625 JH, 가상TCP 적용을 위한 변환 추가
@@ -123,12 +124,17 @@ class DoosanRobotControlNode(Node):
         self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
         self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
+        # 외력 감지 상태 (히스테리시스용)
+        self._force_detected = False
+
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
         self.declare_parameter("m_acceleration", 60.0)
         self.declare_parameter("d_velocity", 30.0)
         self.declare_parameter("d_acceleration", 30.0)
         self.declare_parameter("move_duration_sec", 0.4)
+        # 외력 감지 임계값 (Nm) - 각 관절 외력 토크 중 최대값이 이 값을 초과하면 감지
+        self.declare_parameter("force_threshold", 20.0)
 
         self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
 
@@ -141,6 +147,11 @@ class DoosanRobotControlNode(Node):
         self.current_pose_name = "home_pose"
 
         self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
+
+        self.force_detected_pub = self.create_publisher(Bool, "/robot/force_detected", 10)
+        # 200ms 주기로 외력 모니터링
+        self.create_timer(0.2, self._check_external_force)
+
         #20260625 JH, AddTCP, SetTCP 서비스 추가
         self.create_service(AddTcp, "/robot/add_tcp", self.handle_add_tcp)
         self.create_service(SetTcp, "/robot/set_tcp", self.handle_set_tcp)
@@ -262,6 +273,29 @@ class DoosanRobotControlNode(Node):
             self.get_logger().warn(f"motion/move_stop -> success={result.success}")
         except Exception as e:
             self.get_logger().error(f"motion/move_stop call failed: {e}")
+
+    def _check_external_force(self):
+        try:
+            torques = get_external_torque()
+            threshold = float(self.get_parameter("force_threshold").value)
+            max_torque = max(abs(t) for t in torques)
+            exceeded = max_torque > threshold
+
+            if exceeded and not self._force_detected:
+                self._force_detected = True
+                self.get_logger().warn(
+                    f"External force detected: max torque={max_torque:.1f} Nm (threshold={threshold})"
+                )
+                self.force_detected_pub.publish(Bool(data=True))
+                # 즉시 모션 정지
+                if self.move_stop_client.service_is_ready():
+                    self.move_stop_client.call_async(MoveStop.Request(stop_mode=DR_HOLD))
+            elif not exceeded and self._force_detected:
+                self._force_detected = False
+                self.get_logger().info("External force cleared")
+                self.force_detected_pub.publish(Bool(data=False))
+        except Exception as e:
+            self.get_logger().debug(f"Force check skipped: {e}")
 #end
 
 def main():
