@@ -193,12 +193,15 @@ class RobotTaskManagerNode(Node):
         self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
-    def move(self, pose_name, move_type, status=None, ignore_stop=False):
+    def move(self, pose_name, move_type, status=None, ignore_stop=False, abort_on_stop=False):
         # 하드 스탑이 이 movel() 도중에 걸리면 로봇이 목표 지점에 도달하기 전에
         # 멈춰버릴 수 있음. stop_event가 다시 켜져 있으면(=이동 중 정지 요청이 왔던
         # 것) 재개를 기다렸다가 같은 목표로 다시 이동해서 실제로 도착했는지 보장한다.
-        # ignore_stop=True이면 stop_event를 무시하고 이동 완료. 시약통 세우기 등
-        # stop 중에도 반드시 실행해야 하는 안전 복귀 동작에서만 사용할 것.
+        # ignore_stop=True  : stop_event를 무시하고 이동 완료 (안전 복귀 동작 전용).
+        # abort_on_stop=True: stop 감지 시 TaskAborted를 호출부로 전달
+        #                     (pour rotate처럼 호출부가 uprighting을 직접 처리할 때 사용).
+        #                     False(기본값)이면 손 감지 정도의 stop은 여기서 흡수하여
+        #                     손이 사라지면 자동으로 재시도 (grip/approach 등 일반 이동).
         #20260626 JH, RobotStatus log 추가
         if status is not None:
             self.publish_status(status[0], status[1], status[2], log=f"move to {pose_name}, move type : {move_type}")
@@ -207,11 +210,19 @@ class RobotTaskManagerNode(Node):
         while True:
             if not ignore_stop:
                 self._check_stop()
-            result = self._call_sync(
-                self.move_client,
-                MoveToPose.Request(pose_name=pose_name, move_type=move_type),
-                ignore_stop=ignore_stop,
-            )
+            try:
+                result = self._call_sync(
+                    self.move_client,
+                    MoveToPose.Request(pose_name=pose_name, move_type=move_type),
+                    ignore_stop=ignore_stop,
+                )
+            except TaskAborted:
+                # emergency stop이거나 호출부가 직접 처리하겠다고 한 경우만 전파.
+                # 그 외(손 감지)는 여기서 흡수하여 손 사라지면 재시도.
+                if self.emergency_event.is_set() or abort_on_stop:
+                    raise
+                self.get_logger().warn(f"Move to {pose_name} interrupted by hand; will retry once resumed")
+                continue  # _check_stop()에서 대기 후 재시도
             if result is None or not result.success:
                 raise TaskFailed(result.message if result else f"move to {pose_name} failed (timeout)")
             if ignore_stop or not self.stop_event.is_set():
@@ -331,10 +342,10 @@ class RobotTaskManagerNode(Node):
                     raise TaskFailed(f"Tube {idx} overflowed during refill")
 
                 try:
-                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', pour_status)
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', pour_status, abort_on_stop=True)
                 except TaskAborted:
-                    # rotate 진행 중 stop이 감지되면 _call_sync에서 TaskAborted 발생.
-                    # 루프 밖으로 나가기 전에 여기서 잡아서 시약통을 먼저 세움.
+                    # rotate 진행 중 stop 감지 시 abort_on_stop=True로 TaskAborted가 여기까지 전달됨.
+                    # 시약통이 기울어진 상태일 수 있으므로 즉시 세움.
                     self.get_logger().warn(f"Stop during rotate (tube {idx}): uprighting immediately")
                     self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
                     if self.emergency_event.is_set():
