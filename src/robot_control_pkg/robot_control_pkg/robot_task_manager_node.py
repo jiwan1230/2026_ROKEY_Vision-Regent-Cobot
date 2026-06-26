@@ -138,7 +138,7 @@ class RobotTaskManagerNode(Node):
         self.status_pub.publish(msg)
 
     #20260624 준형, rclpy.spin_until_future_complete()형식으로 변환
-    def _call_sync(self, client, request, timeout_sec=None):
+    def _call_sync(self, client, request, timeout_sec=None, ignore_stop=False):
         if timeout_sec is None:
             timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
 
@@ -151,14 +151,13 @@ class RobotTaskManagerNode(Node):
         future.add_done_callback(lambda _f: done_event.set())
 
         # 0.1초 단위로 polling해서 emergency stop이 걸리면 즉시 TaskAborted.
-        # 기존의 done_event.wait(timeout_sec) 단일 호출은 stop_event를 무시하고
-        # 최대 20초 블로킹 → timeout 후 None 반환 → result.success AttributeError
-        # 로 이어지는 버그가 있었음.
+        # ignore_stop=True이면 stop_event를 무시하고 응답을 끝까지 기다림
+        # (시약통 세우기 등 안전 복귀 동작에서 사용).
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
             if done_event.wait(timeout=0.1):
                 break
-            if self.stop_event.is_set():
+            if not ignore_stop and self.stop_event.is_set():
                 self.get_logger().warn(
                     f"Service {client.srv_name} aborted by emergency stop"
                 )
@@ -191,30 +190,35 @@ class RobotTaskManagerNode(Node):
         self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
-    def move(self, pose_name, move_type, status=None):
+    def move(self, pose_name, move_type, status=None, ignore_stop=False):
         # 하드 스탑이 이 movel() 도중에 걸리면 로봇이 목표 지점에 도달하기 전에
         # 멈춰버릴 수 있음. stop_event가 다시 켜져 있으면(=이동 중 정지 요청이 왔던
         # 것) 재개를 기다렸다가 같은 목표로 다시 이동해서 실제로 도착했는지 보장한다.
+        # ignore_stop=True이면 stop_event를 무시하고 이동 완료. 시약통 세우기 등
+        # stop 중에도 반드시 실행해야 하는 안전 복귀 동작에서만 사용할 것.
         #20260626 JH, RobotStatus log 추가
         if status is not None:
             self.publish_status(status[0], status[1], status[2], log=f"move to {pose_name}, move type : {move_type}")
         else:
             self.get_logger().info(f"move to {pose_name}, move type : {move_type}")
         while True:
-            self._check_stop()
+            if not ignore_stop:
+                self._check_stop()
             result = self._call_sync(
                 self.move_client,
                 MoveToPose.Request(pose_name=pose_name, move_type=move_type),
+                ignore_stop=ignore_stop,
             )
-            if not result.success:
-                raise TaskFailed(result.message)
-            if not self.stop_event.is_set():
+            if result is None or not result.success:
+                raise TaskFailed(result.message if result else f"move to {pose_name} failed (timeout)")
+            if ignore_stop or not self.stop_event.is_set():
                 return
             self.get_logger().warn(f"Move to {pose_name} interrupted by stop; will retry once resumed")
     # end
 
-    def grip(self, command, status=None):
-        self._check_stop()
+    def grip(self, command, status=None, ignore_stop=False):
+        if not ignore_stop:
+            self._check_stop()
         if status is not None:
             if command == "OPEN":
                 self.publish_status(RobotStatus.STATUS_GRIPPER_OPEN, status[1], status[2], 'release : gripper open')
@@ -225,8 +229,8 @@ class RobotTaskManagerNode(Node):
                 self.get_logger().info('release : gripper open')
             elif command == "CLOSE":
                 self.get_logger().info('grip : gripper close')
-        result = self._call_sync(self.gripper_client, GripperControl.Request(command=command))
-        return result.success
+        result = self._call_sync(self.gripper_client, GripperControl.Request(command=command), ignore_stop=ignore_stop)
+        return result.success if result else False
 
     def grip_with_retry(self, command, status=None):
         self.grip_retry_count = int(self.get_parameter("grip_retry_count").value)
@@ -300,8 +304,16 @@ class RobotTaskManagerNode(Node):
 
             max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
             self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
+            pour_status = (RobotStatus.STATUS_REFILLING, "refill", f"pour into tube {idx}")
             for attempt in range(max_pour_attempts):
-                self._check_stop()
+                # stop이 걸려있으면: 기울어진 상태일 수 있으므로 먼저 세우고 대기.
+                # _check_stop()을 먼저 호출하면 move 없이 바로 블락되므로,
+                # ignore_stop=True로 down 자세 복귀를 먼저 실행한 뒤 대기.
+                if self.stop_event.is_set():
+                    self.get_logger().warn(f"Pour paused (tube {idx}): uprighting bottle before wait")
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
+                    self._check_stop()  # 손/stop 해제까지 대기
+
                 result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
                 if result is None or not result.success:
                     raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
@@ -310,9 +322,16 @@ class RobotTaskManagerNode(Node):
                 if result.state == TubeState.STATE_DISPOSE_NEEDED:
                     raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-                self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', status)
-                self._check_stop()
-                time.sleep(0.3)  # simulated dispense duration for one pour increment
+                self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', pour_status)
+
+                # rotate 완료 직후 stop 감지 시 즉시 세우기 (기울어진 채 대기 방지)
+                if self.stop_event.is_set():
+                    self.get_logger().warn(f"Stop detected after rotate (tube {idx}): uprighting immediately")
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
+                    self._check_stop()
+                    continue  # 대기 후 state 재확인부터
+
+                time.sleep(0.3)
             else:
                 raise TaskFailed(f"Tube {idx} still not normal after {max_pour_attempts} pour attempts")
 
@@ -321,16 +340,19 @@ class RobotTaskManagerNode(Node):
             status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
             self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
             self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
-            
+
         finally:
+            # TaskFailed / TaskAborted 어느 경우든 시약통을 반납하고 홈으로 복귀.
+            # ignore_stop=True를 사용해서 stop_event가 set인 상태에서도 반드시 실행.
+            # (시약통을 손에 쥔 채로 멈추면 낙하 위험이 있으므로 반납 우선)
             try:
-                status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
-                self.move(REFILL_SOURCE_GRIP_POSE, 'down', status)
-                self.grip(GripperControl.Request.COMMAND_OPEN, status)
-                status = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status)
-                self.move(HOME_POSE, 'move', status)
+                status_cleanup = [RobotStatus.STATUS_MOVING, "refill", "return refill source"]
+                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup, ignore_stop=True)
+                self.move(REFILL_SOURCE_GRIP_POSE, 'down', status_cleanup, ignore_stop=True)
+                self.grip(GripperControl.Request.COMMAND_OPEN, ignore_stop=True)
+                status_cleanup = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
+                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup, ignore_stop=True)
+                self.move(HOME_POSE, 'move', status_cleanup, ignore_stop=True)
             except Exception as e:
                 self.get_logger().warn(f"Failed to cleanup refill source after failure: {e}")
     # end
