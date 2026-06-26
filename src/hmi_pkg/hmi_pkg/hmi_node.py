@@ -487,6 +487,7 @@ class HMIDashboardApp(QDialog):
             self.label_tube0_11.setText(f"{status_msg.status}")
             self.label_tube0_10.setText(f"{status_msg.current_task or '--'}")
             self.label_tube0_9.setText(f"{status_msg.detail or '--'}")
+            self.log(status_msg.log)
         self._update_robot_led(status_msg)
 
         self.label_tube0_7.setText("OK" if self.node.camera_ok else "DISCONNECTED")
