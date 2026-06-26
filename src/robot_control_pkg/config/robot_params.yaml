@@ -34,6 +34,9 @@ doosan_robot_control_node:
       "home_pose",
       "waste_approach_pose",
       "waste_release_pose",
+      "waste_rotate_pose",
+      "waste_rotate_reagent_pose",
+      "waste_rotate_tube_pose",
       "tray_tool_stand_approach_pose",
       "tray_tool_stand_grip_pose",
       "tray_transfer_0_tool_approach_pose",
@@ -111,6 +114,11 @@ doosan_robot_control_node:
     poses.waste_approach_pose: [273.84, -223.76, 220.0, 90.0, 180.0, -90.0]
     # 260626 jiwan 
     poses.waste_release_pose: [273.84, -223.76, 55.0, 90.0, 180.0, -90.0]
+
+    #20260626 JH
+    poses.waste_rotate_pose: [273.84, -230.76, 55.0, 90.0, 90.0, -90.0]
+    poses.waste_rotate_reagent_pose: [42.16, -432.28, 207.77, 180.0, -90.0, 90.0]
+    poses.waste_rotate_tube_pose: [357.84, -432.28, 207.77, 180.0, -90.0, 90.0]
 
     # ===== Tray tool stand (fixed, no tray_idx) =====
     poses.tray_tool_stand_approach_pose: [350.66, -227.73, 220.0, 90.0, 180.0, -90.0]

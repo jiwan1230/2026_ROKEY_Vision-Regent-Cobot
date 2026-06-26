@@ -32,6 +32,9 @@ from robot_control_pkg.poses import (
     HOME_POSE,
     WASTE_APPROACH_POSE,
     WASTE_RELEASE_POSE,
+    WASTE_ROTATE_POSE,
+    WASTE_ROTATE_REAGENT_POSE,
+    WASTE_ROTATE_TUBE_POSE,
     TRAY_TOOL_STAND_APPROACH_POSE,
     TRAY_TOOL_STAND_GRIP_POSE,
     REFILL_SOURCE_APPROACH_POSE,
@@ -80,6 +83,12 @@ class RobotTaskManagerNode(Node):
         # self.recheck_timeout_sec = float(self.get_parameter("recheck_timeout_sec").value)
         # self.service_call_timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
         #end
+
+        #20260626 JH, HMI에 publish할 때, 기존 값과 달라야 보내지게 하기 위한 임시 저장소 추가
+        self._last_status = None
+        self._last_current_task = None
+        self._last_detail = None
+        self._last_log = None
 
         self.stop_event = threading.Event()
         # 손 감지(is_emergency=False)와 구별되는 HMI emergency stop 전용 이벤트.
@@ -134,13 +143,28 @@ class RobotTaskManagerNode(Node):
     # ---- low-level helpers -------------------------------------------------
 
     #20260626 JH, RobotStatus publish에 log 추가(hmi 출력용)
+    #20260626 JH, HMI에 publish할 때, 기존과 동일한 내용이면 전송하지 않는 로직 추가
     def publish_status(self, status, current_task="", detail="", log=""):
+        if (self._last_status == status and
+            self._last_current_task == current_task and
+            self._last_detail == detail and
+            self._last_log == log):
+            return  # 변경된 점이 없으면 여기서 함수를 종료(발행 안 함)
+
+        # 2. 변경점이 있다면 새로운 값으로 업데이트
+        self._last_status = status
+        self._last_current_task = current_task
+        self._last_detail = detail
+        self._last_log = log
+
+        # 3. 메시지 생성 및 발행 (기존 로직)
         msg = RobotStatus()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = status
         msg.current_task = current_task
         msg.detail = detail
         msg.log = log
+        
         self.status_pub.publish(msg)
 
     #20260624 준형, rclpy.spin_until_future_complete()형식으로 변환
@@ -283,6 +307,20 @@ class RobotTaskManagerNode(Node):
         self.move(WASTE_RELEASE_POSE, 'down', status)
         self.grip(GripperControl.Request.COMMAND_OPEN, status)
 
+        status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to pick rotate pose"]
+        self.move(WASTE_APPROACH_POSE, 'move', status)
+        self.move(WASTE_ROTATE_POSE, 'down', status)
+        self.grip(GripperControl.Request.COMMAND_CLOSE, status)
+
+        status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to waste reagent"]
+        self.move(WASTE_ROTATE_REAGENT_POSE, 'move', status)
+        self.move(WASTE_ROTATE_REAGENT_POSE, 'rotate_reagent', status)
+        self.move(WASTE_ROTATE_REAGENT_POSE, 'rotate_reagent', status)
+
+        status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to waste tube"]
+        self.move(WASTE_ROTATE_TUBE_POSE, 'move', status)
+        self.grip(GripperControl.Request.COMMAND_OPEN, status)
+
         # 260624 jiwan 폐기 완료를 vision에 알림 (handled_slots override 트리거).
         # 여러 tube를 한 번에 폐기할 수 있어서 tube마다 즉시 알려줘야 함 - 끝나고
         # 한 번에 모아서 보내면 안 됨.
@@ -295,6 +333,7 @@ class RobotTaskManagerNode(Node):
 
         #20260626 JH, 버리고 다시 위로 이동 추가
         status = [RobotStatus.STATUS_MOVING, "move to home", f"dispose tube {idx} complete"]
+        self.move(WASTE_ROTATE_POSE, 'move', status)
         self.move(WASTE_APPROACH_POSE, 'move', status)
         self.move(HOME_POSE, 'move', status)
 

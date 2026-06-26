@@ -16,6 +16,11 @@ HOME_POSE = "home_pose"
 WASTE_APPROACH_POSE = "waste_approach_pose"
 WASTE_RELEASE_POSE = "waste_release_pose"
 
+#20260626 JH, 버리는 위치 추가
+WASTE_ROTATE_POSE = "waste_rotate_pose"
+WASTE_ROTATE_REAGENT_POSE = "waste_rotate_reagent_pose"
+WASTE_ROTATE_TUBE_POSE = "waste_rotate_tube_pose"
+
 TRAY_TOOL_STAND_APPROACH_POSE = "tray_tool_stand_approach_pose"
 TRAY_TOOL_STAND_GRIP_POSE = "tray_tool_stand_grip_pose"
 
@@ -76,6 +81,9 @@ def all_pose_names(num_tubes: int = 3, num_trays: int = 3) -> list:
         HOME_POSE,
         WASTE_APPROACH_POSE,
         WASTE_RELEASE_POSE,
+        WASTE_ROTATE_POSE,
+        WASTE_ROTATE_REAGENT_POSE,
+        WASTE_ROTATE_TUBE_POSE,
         TRAY_TOOL_STAND_APPROACH_POSE,
         TRAY_TOOL_STAND_GRIP_POSE,
         REFILL_SOURCE_APPROACH_POSE,

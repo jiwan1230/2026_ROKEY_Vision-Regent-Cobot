@@ -192,11 +192,11 @@ class DoosanRobotControlNode(Node):
         real_target = apply_virtual_tcp(target, self.current_tcp_offset)
 
         if move_type == 'move':
-            movel(real_target, vel=self.get_parameter("m_velocity").value, acc=self.get_parameter("m_acceleration").value)
+            movel(real_target, vel=[self.get_parameter("m_velocity").value, 5], acc=[self.get_parameter("m_acceleration").value, 5])
         elif move_type == 'down':
-            movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+            movel(real_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
         elif move_type == 'down_tray':
-            movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
+            movel(real_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
         elif move_type == 'rotate':
             current_flange = get_current_posx(DR_BASE)[0]
             tcp_rotate = [x + y for x, y in zip(self.current_tcp_offset, self.tcp_rotate_offset)]
@@ -215,6 +215,21 @@ class DoosanRobotControlNode(Node):
             movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
             move_periodic([0, 0, 0, 0, 0, 5], period=0.5, repeat=3)
             wait(0.5)
+        #20260626 JH, 시약 버리기용 180도 회전 동작
+        elif move_type == 'rotate_reagent':
+            current_flange = get_current_posx(DR_BASE)[0]
+            tcp_rotate = self.current_tcp_offset
+
+            edge_pose = get_forward_tcp(current_flange, tcp_rotate)
+
+            edge_pose[3] = 180
+            edge_pose[4] = -90
+            edge_pose[5] = -90
+            
+            real_rotate_target = apply_virtual_tcp(edge_pose, tcp_rotate)
+
+            movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            wait(1)
         time.sleep(self.move_duration_sec)
     #end
     
@@ -229,7 +244,7 @@ class DoosanRobotControlNode(Node):
             self.get_logger().error(response.message)
             return response
 
-        target = self.get_parameter(param_name).value
+        target = list(self.get_parameter(param_name).value)
 
         self.get_logger().info(f'{target} to move')
         self.move(pose_name, target, request.move_type)
