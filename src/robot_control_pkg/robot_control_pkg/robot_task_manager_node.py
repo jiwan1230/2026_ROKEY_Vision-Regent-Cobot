@@ -374,16 +374,29 @@ class RobotTaskManagerNode(Node):
 
         finally:
             # TaskFailed / TaskAborted 어느 경우든 시약통을 반납하고 홈으로 복귀.
-            # ignore_stop=True를 사용해서 stop_event가 set인 상태에서도 반드시 실행.
-            # (시약통을 손에 쥔 채로 멈추면 낙하 위험이 있으므로 반납 우선)
+            # ignore_stop=True는 hard_stop에 의해 목표 미도달 상태에서도 다음 단계로
+            # 진행해버리는 버그가 있어서 사용 금지.
+            # 대신 _do_cleanup으로 TaskAborted를 잡아 stop 해제 후 재시도하여
+            # 각 단계마다 실제로 목표 위치에 도달한 뒤에만 다음 단계를 실행한다.
+            def _do_cleanup(fn):
+                while True:
+                    try:
+                        fn()
+                        return
+                    except TaskAborted:
+                        # stop이 해제될 때까지 대기 후 재시도
+                        while self.stop_event.is_set():
+                            if not rclpy.ok():
+                                return
+                            time.sleep(0.2)
             try:
                 status_cleanup = [RobotStatus.STATUS_MOVING, "refill", "return refill source"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup, ignore_stop=True)
-                self.move(REFILL_SOURCE_GRIP_POSE, 'down', status_cleanup, ignore_stop=True)
-                self.grip(GripperControl.Request.COMMAND_OPEN, ignore_stop=True)
+                _do_cleanup(lambda: self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup))
+                _do_cleanup(lambda: self.move(REFILL_SOURCE_GRIP_POSE, 'down', status_cleanup))
+                _do_cleanup(lambda: self.grip(GripperControl.Request.COMMAND_OPEN))
                 status_cleanup = [RobotStatus.STATUS_MOVING, "move to home", f"refill tube {idx} complete"]
-                self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup, ignore_stop=True)
-                self.move(HOME_POSE, 'move', status_cleanup, ignore_stop=True)
+                _do_cleanup(lambda: self.move(REFILL_SOURCE_APPROACH_POSE, 'move', status_cleanup))
+                _do_cleanup(lambda: self.move(HOME_POSE, 'move', status_cleanup))
             except Exception as e:
                 self.get_logger().warn(f"Failed to cleanup refill source after failure: {e}")
     # end
