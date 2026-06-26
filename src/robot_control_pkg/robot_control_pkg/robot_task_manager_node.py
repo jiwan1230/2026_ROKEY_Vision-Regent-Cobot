@@ -67,6 +67,9 @@ class RobotTaskManagerNode(Node):
         self.declare_parameter("service_call_timeout_sec", 100.0)
         # 260624 jiwan refill 반복 보충 루프의 안전 상한 (무한루프 방지)
         self.declare_parameter("max_pour_attempts", 5)
+        # NORMAL 판정을 N번 연속으로 받아야 refill 완료로 인정.
+        # YOLO 순간 오차로 인한 조기 종료 방지.
+        self.declare_parameter("normal_confirm_count", 3)
         # end
         # 트레이는 깊이 방향으로 3줄(num_trays) 쌓여있고, 항상 맨 앞줄(tray_idx)만
         # 활성 상태. transfer_tray()가 끝날 때마다 tray_idx를 올려서 다음 줄로 넘어감.
@@ -317,8 +320,10 @@ class RobotTaskManagerNode(Node):
             self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
 
             max_pour_attempts = int(self.get_parameter("max_pour_attempts").value)
+            normal_confirm_count = int(self.get_parameter("normal_confirm_count").value)
             self.publish_status(RobotStatus.STATUS_REFILLING, "refill", f"dispense reagent into tube {idx}")
             pour_status = (RobotStatus.STATUS_REFILLING, "refill", f"pour into tube {idx}")
+            consecutive_normals = 0
             for attempt in range(max_pour_attempts):
                 # stop이 걸려있으면 시약통을 먼저 세운 뒤 종류에 따라 처리.
                 # _check_stop()을 먼저 호출하면 move 없이 바로 블락되므로,
@@ -331,13 +336,23 @@ class RobotTaskManagerNode(Node):
                         raise TaskAborted()
                     # 손 감지: 손이 사라질 때까지 대기 후 pour 재개
                     self._check_stop()
+                    consecutive_normals = 0  # 재개 후 카운터 초기화
                     continue  # state 재확인부터
 
                 result = self._call_sync(self.current_tube_state_client, CurrentTubeState.Request(tube_index=idx))
                 if result is None or not result.success:
                     raise TaskFailed(f"current_tube_state unavailable for tube {idx}")
                 if result.state == TubeState.STATE_NORMAL:
-                    break
+                    consecutive_normals += 1
+                    self.get_logger().info(
+                        f"Tube {idx} NORMAL ({consecutive_normals}/{normal_confirm_count})"
+                    )
+                    if consecutive_normals >= normal_confirm_count:
+                        break  # 연속 N회 NORMAL 확인 → refill 완료
+                    # 아직 확인 중: 붓지 않고 다음 체크 대기
+                    time.sleep(0.3)
+                    continue
+                consecutive_normals = 0  # NORMAL이 아니면 카운터 리셋
                 if result.state == TubeState.STATE_DISPOSE_NEEDED:
                     raise TaskFailed(f"Tube {idx} overflowed during refill")
 
@@ -368,9 +383,9 @@ class RobotTaskManagerNode(Node):
 
             #시약통 반납
             #20260625 준형, 회전 후 회전 전 최초 위치로 복귀 후 approach_pose로 이동
-            status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
-            self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
-            self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
+            # status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+            # self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
+            # self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
 
         finally:
             # TaskFailed / TaskAborted 어느 경우든 시약통을 반납하고 홈으로 복귀.
@@ -378,6 +393,11 @@ class RobotTaskManagerNode(Node):
             # 진행해버리는 버그가 있어서 사용 금지.
             # 대신 _do_cleanup으로 TaskAborted를 잡아 stop 해제 후 재시도하여
             # 각 단계마다 실제로 목표 위치에 도달한 뒤에만 다음 단계를 실행한다.
+            # 260626 jiwan 
+            status = [RobotStatus.STATUS_MOVING, "refill", "move to refill zone"]
+            self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', status)
+            self.move(refill_target_approach_pose(self.tray_idx, idx), 'move', status)
+            #  end
             def _do_cleanup(fn):
                 while True:
                     try:
