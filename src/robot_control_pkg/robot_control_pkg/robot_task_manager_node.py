@@ -330,7 +330,17 @@ class RobotTaskManagerNode(Node):
                 if result.state == TubeState.STATE_DISPOSE_NEEDED:
                     raise TaskFailed(f"Tube {idx} overflowed during refill")
 
-                self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', pour_status)
+                try:
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'rotate', pour_status)
+                except TaskAborted:
+                    # rotate 진행 중 stop이 감지되면 _call_sync에서 TaskAborted 발생.
+                    # 루프 밖으로 나가기 전에 여기서 잡아서 시약통을 먼저 세움.
+                    self.get_logger().warn(f"Stop during rotate (tube {idx}): uprighting immediately")
+                    self.move(refill_target_pour_pose(self.tray_idx, idx), 'down', pour_status, ignore_stop=True)
+                    if self.emergency_event.is_set():
+                        raise TaskAborted()  # emergency → finally에서 반납
+                    self._check_stop()       # 손 감지 → 손 사라질 때까지 대기
+                    continue                 # 재개 후 state 재확인부터
 
                 # rotate 완료 직후 stop 감지 시 즉시 세우기 (기울어진 채 대기 방지)
                 if self.stop_event.is_set():
@@ -339,7 +349,7 @@ class RobotTaskManagerNode(Node):
                     if self.emergency_event.is_set():
                         raise TaskAborted()
                     self._check_stop()
-                    continue  # 대기 후 state 재확인부터
+                    continue
 
                 time.sleep(0.3)
             else:
