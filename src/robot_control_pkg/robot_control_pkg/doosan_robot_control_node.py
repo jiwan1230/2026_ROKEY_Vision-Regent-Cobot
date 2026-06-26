@@ -114,8 +114,8 @@ class DoosanRobotControlNode(Node):
         
         #20260625 JH, 기본 TCP 설정
         self.tcps = {}
-        self.current_tcp_name = "default_tcp"
-        self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.current_tcp_name = "gripper_tcp"
+        self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
 
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
@@ -198,11 +198,15 @@ class DoosanRobotControlNode(Node):
             # 3. 현재 그 끝면 선이 공간상 어디 있는지 계산! (XYZ는 고정될 기준점)
             edge_pose = get_forward_tcp(current_flange, self.current_tcp_offset)
             
+            edge_pose[2] -= 1.7
+            edge_pose[4] -= 2
             # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
             # (기존 코드에 있던 각도 변화량 적용)
-            edge_pose[3] = 90      # Rx
-            edge_pose[5] = -90     # Rz
+            edge_pose[3] = 90      # Rz1
+            edge_pose[5] = -90     # Rz2
             
+            # 원하는 위치로 이동 적용
+
             # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
             real_rotate_target = apply_virtual_tcp(edge_pose, self.current_tcp_offset)
             
