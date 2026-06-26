@@ -13,6 +13,7 @@ import time
 import sys
 import rclpy
 import math
+import copy
 import numpy as np
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -80,6 +81,7 @@ def apply_virtual_tcp(target_pose, tcp_offset):
     T_target[0:3, 3] = [x, y, z]
 
     T_tcp = np.eye(4)
+    T_tcp[0:3, 0:3] = euler_zyz_to_matrix(tcp_offset[3], tcp_offset[4], tcp_offset[5])
     T_tcp[0:3, 3] = tcp_offset[0:3]
 
     T_flange = T_target @ np.linalg.inv(T_tcp)
@@ -97,8 +99,9 @@ def get_forward_tcp(flange_pose, tcp_offset):
     T_flange[0:3, 3] = [x, y, z]
     
     T_tcp = np.eye(4)
-    T_tcp[0:3, 3] = tcp_offset[0:3] # 위치 오프셋 적용
-    
+    T_tcp[0:3, 0:3] = euler_zyz_to_matrix(tcp_offset[3], tcp_offset[4], tcp_offset[5])
+    T_tcp[0:3, 3] = tcp_offset[0:3]
+
     # Flange 행렬에 TCP 행렬을 곱해서 공간상 위치 도출
     T_target = T_flange @ T_tcp
     
@@ -118,6 +121,7 @@ class DoosanRobotControlNode(Node):
         # self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.current_tcp_name = "gripper_tcp"
         self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
+        self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
@@ -194,24 +198,20 @@ class DoosanRobotControlNode(Node):
         elif move_type == 'down_tray':
             movel(real_target, vel=self.get_parameter("d_velocity").value, acc=self.get_parameter("d_acceleration").value)
         elif move_type == 'rotate':
-            # 1. 현재 로봇 손목(Flange)의 절대 좌표 가져오기
             current_flange = get_current_posx(DR_BASE)[0]
-            
-            # 3. 현재 그 끝면 선이 공간상 어디 있는지 계산! (XYZ는 고정될 기준점)
-            edge_pose = get_forward_tcp(current_flange, self.current_tcp_offset)
-            
-            # 4. 각도(자세)만 변경 (XYZ는 절대 건드리지 않음)
-            # (기존 코드에 있던 각도 변화량 적용)
-            edge_pose[3] = 90      # Rx
-            edge_pose[5] = -90     # Rz
+            tcp_rotate = [x + y for x, y in zip(self.current_tcp_offset, self.tcp_rotate_offset)]
+
+            edge_pose = get_forward_tcp(current_flange, tcp_rotate)
+
             edge_pose[2] -= 1.7
+            edge_pose[3] = 90.0   # A (Rx)
             edge_pose[4] -= 2.0
-            
-            # 5. 자세가 바뀐 끝면 선을 만들기 위해, 실제 로봇 손목이 가야 할 위치 역산
-            real_rotate_target = apply_virtual_tcp(edge_pose, self.current_tcp_offset)
-            
+            edge_pose[5] = -90.0  # C (Rz)
+
+            real_rotate_target = apply_virtual_tcp(edge_pose, tcp_rotate)
+
             self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
-            
+
             movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
             move_periodic([0, 0, 0, 0, 0, 3], period=0.5, repeat=3)
         time.sleep(self.move_duration_sec)
