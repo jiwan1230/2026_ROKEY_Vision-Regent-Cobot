@@ -29,28 +29,56 @@
 #                   - TCP Mode: X/Y/Z(mm) · A/B/C(deg) 위치 조그
 #                   - JOG Speed 슬라이더(1~100%), STOP 버튼
 #                   - 메인 QTabWidget 이름 tabWidget → JOG 변경에 따른 참조 수정
+#
+# 2026-06-27  soo  로봇 파라미터 적용 안전성 개선
+#                   - 파라미터 범위 검증 추가 (_validate_params): 범위 초과 시 적용 차단
+#                   - 적용 완료/실패 팝업 추가 (_on_apply_complete): 서비스 응답 대기 후 표시
+#                   - _apply_params_thread에 threading.Event 도입 — 서비스 응답 후 팝업 발행
+#                   - _DOOSAN_SCALAR_RANGES / _TASK_SCALAR_RANGES 상수 추가
+#
+# 2026-06-27  soo  비전 파라미터 confidence 연결
+#                   - liquid_height_detector_node / tube_state_publisher_node 서비스 클라이언트 추가
+#                   - tab_motion_vision: 바운딩박스 신뢰도(spin_vision_confidence) +
+#                     높이 신뢰도(spin_vision_height_conf) 동적 추가
+#                   - 로그인 시 GetParameters로 초기값 로드 (_load_vision_params)
+#                   - btn_apply_vision_admin → SetParameters 두 노드에 동시 적용
+#
+# 2026-06-27  soo  좌표 자동계산 로직 개선 + waste_rotate 포즈 추가
+#                   - _CALC_PARAMS 4개 → 9개: work_z_offset, pour_tube_offset,
+#                     pour_z_offset, pour_ry_offset, grip_z_offset 추가
+#                   - _recalc_derived_poses 재작성: approach 1개 기준 → 45개 전체 파생
+#                     (기존: approach/work/pour 각각 독립 base / 신규: approach→work/pour/grip 오프셋)
+#                   - base_pose_keys를 approach 2개만으로 축소
+#                   - _all_pose_names()에 waste_rotate_* 4개 추가
 # =============================================================================
 
 import sys
 import os
 import threading
+import collections
 from datetime import datetime
 import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, String, Int32
+from std_msgs.msg import Bool, String
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 # 2026-06-24 soo: side_image CompressedImage 구독으로 변경 (publisher QoS 맞춤)
 from sensor_msgs.msg import CompressedImage
 from ament_index_python.packages import get_package_share_directory
 
 from PyQt5 import uic
-from PyQt5.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton)
+from PyQt5.QtWidgets import (
+    QApplication, QDialog, QMessageBox, QPushButton,
+    QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QSpinBox, QFormLayout, QRadioButton, QButtonGroup, QHBoxLayout,
+)
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 
 from std_srvs.srv import SetBool, Trigger
+from rcl_interfaces.srv import SetParameters, GetParameters
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
 from interfaces.srv import RequestRecheck, StopTask
@@ -69,6 +97,98 @@ STATE_COLORS = {
 }
 
 RESOLUTION_OPTIONS = ["640x480", "1280x720", "1920x1080"]
+
+
+def _all_pose_names(num_tubes: int = 3, num_trays: int = 3) -> list:
+    """robot_control_pkg.poses.all_pose_names 와 동일한 목록. 패키지 의존 없이 인라인."""
+    names = [
+        "home_pose",
+        "waste_approach_pose",
+        "waste_release_pose",
+        "waste_rotate_pose",
+        "waste_rotate_middle_pose",
+        "waste_rotate_reagent_pose",
+        "waste_rotate_tube_pose",
+        "tray_tool_stand_approach_pose",
+        "tray_tool_stand_grip_pose",
+        "refill_source_approach_pose",
+        "refill_source_grip_pose",
+    ]
+    for t in range(num_trays):
+        names += [
+            f"tray_transfer_{t}_tool_approach_pose",
+            f"tray_transfer_{t}_tool_preinsert_pose",
+            f"tray_transfer_{t}_tool_insert_pose",
+            f"tray_transfer_{t}_lift_pose",
+            f"tray_transfer_{t}_success_approach_pose",
+            f"tray_transfer_{t}_success_place_pose",
+            f"tray_transfer_{t}_tool_detach_pose",
+        ]
+        for u in range(num_tubes):
+            names += [
+                f"refill_target_{t}_{u}_approach_pose",
+                f"refill_target_{t}_{u}_work_pose",
+                f"refill_target_{t}_{u}_pour_pose",
+                f"dispose_tray_{t}_tube_{u}_approach_pose",
+                f"dispose_tray_{t}_tube_{u}_grip_pose",
+            ]
+    return names
+
+# doosan_robot_control_node에 declare된 스칼라 파라미터 (SetParameters로 전송)
+_DOOSAN_SCALAR = [
+    ('m_velocity',        float),
+    ('m_acceleration',    float),
+    ('d_velocity',        float),
+    ('d_acceleration',    float),
+    ('move_duration_sec', float),
+]
+# UI 전용 계산 파라미터 - YAML 참조용이며 로봇 노드에 declare 안 됨 (전송하지 않음)
+_CALC_PARAMS = [
+    ('tube_gap',          70.0),
+    ('tray_gap',          100.0),
+    ('tube_crood',        1),
+    ('tray_crood',        0),
+    ('work_z_offset',    -105.0),   # approach → work Z 차이
+    ('pour_tube_offset',  35.0),    # approach → pour 튜브축 방향 차이
+    ('pour_z_offset',    -45.0),    # approach → pour Z 차이
+    ('pour_ry_offset',   -45.0),    # approach → pour RY 차이
+    ('grip_z_offset',   -120.0),    # approach → grip Z 차이 (dispose)
+]
+# robot_task_manager_node에 declare된 스칼라 파라미터
+_TASK_SCALAR = [
+    ('grip_retry_count',         int),
+    ('recheck_timeout_sec',      float),
+    ('service_call_timeout_sec', float),
+    ('max_pour_attempts',        int),
+    ('normal_confirm_count',     int),
+    ('num_trays',                int),
+]
+
+# 파라미터 허용 범위 (min, max)
+_DOOSAN_SCALAR_RANGES = {
+    'm_velocity':        (1.0,  100.0),
+    'm_acceleration':    (1.0,  100.0),
+    'd_velocity':        (1.0,  100.0),
+    'd_acceleration':    (1.0,  100.0),
+    'move_duration_sec': (0.05, 10.0),
+}
+_TASK_SCALAR_RANGES = {
+    'grip_retry_count':         (0,    20),
+    'recheck_timeout_sec':      (0.5,  300.0),
+    'service_call_timeout_sec': (1.0,  600.0),
+    'max_pour_attempts':        (1,    100),
+    'normal_confirm_count':     (1,    50),
+    'num_trays':                (1,    5),
+}
+# DR-M0609 작업 반경 900mm 기준. ZYZ 오일러 각도는 ±180°.
+_POSE_AXIS_RANGES = {
+    'X':  (-950.0,  950.0),
+    'Y':  (-950.0,  950.0),
+    'Z':  (-200.0, 1300.0),
+    'RX': (-180.0,  180.0),
+    'RY': (-180.0,  180.0),
+    'RZ': (-180.0,  180.0),
+}
 
 
 # 2026-06-24 soo: CompressedImage(JPEG) → bgr8 numpy 변환
@@ -102,7 +222,7 @@ class IntegratedHMINode(Node):
         # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
         # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
         # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
-        self.vision_log_messages = []
+        self.vision_log_messages = collections.deque()
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -139,9 +259,32 @@ class IntegratedHMINode(Node):
         self.reset_slot_anchors_client = self.create_client(Trigger, "/vision/reset_slot_anchors")
         self.reset_handled_slots_client = self.create_client(Trigger, "/vision/reset_handled_slots")
 
+        self.get_param_doosan_client = self.create_client(
+            GetParameters, '/doosan_robot_control_node/get_parameters')
+        self.set_param_doosan_client = self.create_client(
+            SetParameters, '/doosan_robot_control_node/set_parameters')
+        self.get_param_task_client = self.create_client(
+            GetParameters, '/robot_task_manager_node/get_parameters')
+        self.set_param_task_client = self.create_client(
+            SetParameters, '/robot_task_manager_node/set_parameters')
+        # 2026-06-27 soo: 비전 노드 파라미터 서비스 클라이언트 추가
+        self.get_param_camera_client = self.create_client(
+            GetParameters, '/side_camera_node/get_parameters')
+        self.set_param_camera_client = self.create_client(
+            SetParameters, '/side_camera_node/set_parameters')
+        self.get_param_detector_client = self.create_client(
+            GetParameters, '/liquid_height_detector_node/get_parameters')
+        self.set_param_detector_client = self.create_client(
+            SetParameters, '/liquid_height_detector_node/set_parameters')
+        self.get_param_tube_state_client = self.create_client(
+            GetParameters, '/tube_state_publisher_node/get_parameters')
+        self.set_param_tube_state_client = self.create_client(
+            SetParameters, '/tube_state_publisher_node/set_parameters')
+
+        self.set_hand_safety_client = self.create_client(SetBool, "/robot/set_hand_safety_enabled")
+
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
-        self.gripper_force_pub = self.create_publisher(Int32, "/gripper/force_cmd", 10)
 
     def _on_image(self, msg):
         try:
@@ -187,8 +330,56 @@ class IntegratedHMINode(Node):
     def publish_yolo_enabled(self, enabled: bool):
         msg = Bool(); msg.data = enabled; self.yolo_enable_pub.publish(msg)
 
-    def publish_gripper_force(self, percent: int):
-        msg = Int32(); msg.data = percent; self.gripper_force_pub.publish(msg)
+    def call_get_param_doosan(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_doosan_client.call_async(req)
+
+    def call_set_param_doosan(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_doosan_client.call_async(req)
+
+    def call_get_param_task(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_task_client.call_async(req)
+
+    def call_set_param_task(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_task_client.call_async(req)
+
+    # 2026-06-27 soo: 비전 노드 파라미터 get/set 헬퍼
+    def call_get_param_camera(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_camera_client.call_async(req)
+
+    def call_set_param_camera(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_camera_client.call_async(req)
+
+    def call_get_param_detector(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_detector_client.call_async(req)
+
+    def call_set_param_detector(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_detector_client.call_async(req)
+
+    def call_get_param_tube_state(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_tube_state_client.call_async(req)
+
+    def call_set_param_tube_state(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_tube_state_client.call_async(req)
 
 
 # =====================================================================
@@ -200,22 +391,38 @@ class HMIDashboardApp(QDialog):
     # thread, not the Qt GUI thread - touching QTextEdit from there directly
     # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
     # marshal the string-only payload onto the GUI thread safely.
-    log_signal = pyqtSignal(str)
-    force_alert_signal = pyqtSignal(bool)
+    log_signal                    = pyqtSignal(str)
+    force_alert_signal            = pyqtSignal(bool)
+    _doosan_params_ready          = pyqtSignal(object, object)  # (names, pvalues)
+    _task_params_ready            = pyqtSignal(object, object)  # (names, pvalues)
+    _camera_params_ready          = pyqtSignal(object, object)
+    _detector_roi_params_ready    = pyqtSignal(object, object)
+    _detector_params_ready        = pyqtSignal(object, object)  # (names, pvalues)
+    _tube_state_params_ready      = pyqtSignal(object, object)  # (names, pvalues)
+    _detector_buffer_params_ready = pyqtSignal(object, object)
+    _apply_complete_signal        = pyqtSignal(bool, str)       # (success, message)
+    _update_feature_btn_signal    = pyqtSignal(object, bool)    # (btn, on) — 서비스 실패 시 롤백용
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
         self.node = node
         self.log_signal.connect(self.log)
         self.force_alert_signal.connect(self._on_force_alert)
+        self._doosan_params_ready.connect(self._apply_doosan_params)
+        self._task_params_ready.connect(self._apply_task_params)
+        self._camera_params_ready.connect(self._apply_camera_params)
+        self._detector_roi_params_ready.connect(self._apply_detector_roi_params)
+        self._detector_params_ready.connect(self._apply_detector_params)
+        self._tube_state_params_ready.connect(self._apply_tube_state_params)
+        self._detector_buffer_params_ready.connect(self._apply_detector_buffer_params)
+        self._apply_complete_signal.connect(self._on_apply_complete)
+        self._update_feature_btn_signal.connect(self._update_feature_btn)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
         self._force_shown = False
-        # 외력이 한 번이라도 감지되면 True로 래치되어 START를 누를 때까지 유지됨.
-        # 충격성 외력(순간 True→False)에도 팝업이 사라지지 않음.
         self._force_latch = False
-        self._prev_force_detected = False  # 상승 에지 감지용
+        self._prev_force_detected = False
         self._force_dialog = None
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
@@ -251,9 +458,6 @@ class HMIDashboardApp(QDialog):
         self.btn_yolo_toggle.setChecked(False)
         self.btn_yolo_toggle.clicked.connect(self.on_toggle_yolo)
 
-        self.slider_gripper_force.valueChanged.connect(self.on_gripper_force_changed)
-        self.slider_gripper_force.sliderReleased.connect(self.on_gripper_force_apply)
-
         self.btn_clear_fail.clicked.connect(self.on_clear_grip_fail)
 
         # ── 2026-06-24 soo: 시스템 관리자 탭 연결 ───────────────────
@@ -261,6 +465,7 @@ class HMIDashboardApp(QDialog):
         self.btn_admin_login.clicked.connect(self._on_admin_login)
         self.btn_admin_logout.clicked.connect(self._on_admin_logout)
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
+        self.btn_apply_robot_param.clicked.connect(self.on_apply_robot_param)
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -268,6 +473,10 @@ class HMIDashboardApp(QDialog):
             (self.tube2_color_box, self.tube2_status_label, self.tube2_val_label),
         ]
 
+        self._build_robot_param_ui()
+        self._setup_vision_feature_toggles()  # 2026-06-27 soo: Vision 기능 ON/OFF 토글
+        self._setup_vision_conf_ui()          # 2026-06-27 soo: 비전 confidence UI 초기화
+        self._setup_vision_buffer_ui()        # 2026-06-27 soo: 추론 버퍼 UI 초기화
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -362,14 +571,6 @@ class HMIDashboardApp(QDialog):
     # -----------------------------------------------------------------
     # 그리퍼 강도 콜백
     # -----------------------------------------------------------------
-    def on_gripper_force_changed(self, value):
-        self.lbl_gripper_force_val.setText(f"{value} %")
-
-    def on_gripper_force_apply(self):
-        value = self.slider_gripper_force.value()
-        self.node.publish_gripper_force(value)
-        self.log(f"그리퍼 강도 설정: {value}%")
-
     # -----------------------------------------------------------------
     # 그립 실패 알림 콜백
     # -----------------------------------------------------------------
@@ -402,6 +603,8 @@ class HMIDashboardApp(QDialog):
             self.stack_admin.setCurrentIndex(1)
             self.lbl_admin_login_status.setText("")
             self.log("시스템 관리자 로그인 성공")
+            self._load_robot_params()
+            self._load_vision_params()  # 2026-06-27 soo: 로그인 시 비전 파라미터 초기값 로드
         else:
             self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
             self.input_admin_pw.clear()
@@ -477,13 +680,12 @@ class HMIDashboardApp(QDialog):
             self.log("⚠ 그립 실패 감지됨")
 
     def _update_vision_log(self):
-        messages = self.node.vision_log_messages
-        if self._vision_log_seen >= len(messages):
+        if not self.node.vision_log_messages:
             return
         ts = datetime.now().strftime("%H:%M:%S")
-        for text in messages[self._vision_log_seen:]:
+        while self.node.vision_log_messages:
+            text = self.node.vision_log_messages.popleft()
             self.textEdit_vision_log.append(f"[{ts}] {text}")
-        self._vision_log_seen = len(messages)
 
     # -----------------------------------------------------------------
     # 화면 실시간 폴링 (150ms)
@@ -552,6 +754,1041 @@ class HMIDashboardApp(QDialog):
         if self._force_latch != self._force_shown:
             self.force_alert_signal.emit(self._force_latch)
 
+    # -----------------------------------------------------------------
+    # 로봇 파라미터 탭 UI 동적 빌드
+    # .ui의 정적 QLabel 위젯들을 비우고 실제 파라미터 이름 기준 QLineEdit으로 재구성
+    # -----------------------------------------------------------------
+    def _build_robot_param_ui(self):
+        container = self.scrollAreaWidgetContents_robot_param
+        layout = container.layout()
+
+        # 기존 위젯 전부 제거 (btn_apply_robot_param은 마지막에 다시 추가)
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                if w is not self.btn_apply_robot_param:
+                    w.deleteLater()
+
+        edit_style = (
+            "background:#1a1a2e; color:#00e5ff; font-size:13px;"
+            " font-family:monospace; border:1px solid #1565C0;"
+            " border-radius:4px; padding:3px 8px;"
+        )
+        lbl_style = "font-size:13px; font-weight:bold;"
+        hdr_style = (
+            "font-size:12px; font-weight:bold;"
+            " background:#E3F2FD; padding:3px 6px;"
+        )
+        apply_btn_style = (
+            "background:#1565C0; color:white; font-size:13px; font-weight:bold;"
+            " border-radius:4px; padding:5px 12px; margin-top:4px;"
+        )
+
+        # ── Doosan 스칼라 파라미터 그룹 ──────────────────────────────
+        grp_doosan = QGroupBox("Doosan 파라미터 (doosan_robot_control_node)")
+        grid_d = QGridLayout(grp_doosan)
+        grid_d.setHorizontalSpacing(12)
+        grid_d.setVerticalSpacing(8)
+        self._scalar_edits = {'doosan': {}, 'task': {}}
+
+        for row, (name, _) in enumerate(_DOOSAN_SCALAR):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit("0.0")
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            grid_d.addWidget(lbl, row, 0)
+            grid_d.addWidget(edit, row, 1)
+            self._scalar_edits['doosan'][name] = edit
+        btn_d = QPushButton("Doosan 파라미터 적용")
+        btn_d.setStyleSheet(apply_btn_style)
+        btn_d.clicked.connect(self._on_apply_doosan_scalar)
+        grid_d.addWidget(btn_d, len(_DOOSAN_SCALAR), 0, 1, 2)
+        layout.addWidget(grp_doosan)
+
+        # ── 자동 재계산용 gap 파라미터 그룹 (UI 전용, 로봇에 전송 안 함) ──
+        grp_calc = QGroupBox("좌표 자동 계산 파라미터 (UI 전용 — 로봇에 전송되지 않음)")
+        grid_c = QGridLayout(grp_calc)
+        grid_c.setHorizontalSpacing(12)
+        grid_c.setVerticalSpacing(8)
+        self._calc_edits = {}
+
+        for row, (name, default) in enumerate(_CALC_PARAMS):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit(str(default))
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            edit.editingFinished.connect(self._on_gap_param_changed)
+            grid_c.addWidget(lbl, row, 0)
+            grid_c.addWidget(edit, row, 1)
+            self._calc_edits[name] = edit
+
+        note = QLabel(
+            "※ tube_gap/tray_gap 변경 시 refill_target / dispose_tray 포즈가 자동 재계산됩니다.\n"
+            "   기준 포즈: refill_target_0_0_* 와 dispose_tray_0_tube_0_* (tray/tube 인덱스 0)"
+        )
+        note.setStyleSheet("font-size:11px; color:#aaaaaa; padding:4px 0;")
+        note.setWordWrap(True)
+        grid_c.addWidget(note, len(_CALC_PARAMS), 0, 1, 2)
+        layout.addWidget(grp_calc)
+
+        # ── Task Manager 스칼라 파라미터 그룹 ────────────────────────
+        grp_task = QGroupBox("Task Manager 파라미터 (robot_task_manager_node)")
+        grid_t = QGridLayout(grp_task)
+        grid_t.setHorizontalSpacing(12)
+        grid_t.setVerticalSpacing(8)
+
+        for row, (name, _) in enumerate(_TASK_SCALAR):
+            lbl = QLabel(f"{name}:")
+            lbl.setStyleSheet(lbl_style)
+            edit = QLineEdit("0")
+            edit.setStyleSheet(edit_style)
+            edit.setMinimumWidth(110)
+            grid_t.addWidget(lbl, row, 0)
+            grid_t.addWidget(edit, row, 1)
+            self._scalar_edits['task'][name] = edit
+        btn_t = QPushButton("Task 파라미터 적용")
+        btn_t.setStyleSheet(apply_btn_style)
+        btn_t.clicked.connect(self._on_apply_task_scalar)
+        grid_t.addWidget(btn_t, len(_TASK_SCALAR), 0, 1, 2)
+        layout.addWidget(grp_task)
+
+        # ── 포즈 파라미터 그룹 (poses.*) ────────────────────────────
+        grp_poses = QGroupBox("포즈 설정 (poses.*)")
+        grid_p = QGridLayout(grp_poses)
+        grid_p.setHorizontalSpacing(4)
+        grid_p.setVerticalSpacing(3)
+
+        for col, hdr in enumerate(['포즈 이름', 'X(mm)', 'Y(mm)', 'Z(mm)', 'RX(°)', 'RY(°)', 'RZ(°)']):
+            h = QLabel(hdr)
+            h.setStyleSheet(hdr_style)
+            h.setAlignment(Qt.AlignCenter)
+            grid_p.addWidget(h, 0, col)
+
+        self._pose_edits = {}
+        pose_edit_style = (
+            "background:#1a1a2e; color:#00e5ff; font-size:12px;"
+            " font-family:monospace; border:1px solid #1565C0;"
+            " border-radius:3px; padding:2px 5px;"
+        )
+        # 자동 재계산 기준 포즈 — approach만 사용자가 직접 입력, 나머지는 파생
+        base_pose_keys = {
+            'refill_target_0_0_approach_pose',
+            'dispose_tray_0_tube_0_approach_pose',
+        }
+
+        for row_i, pose_name in enumerate(_all_pose_names(num_tubes=3, num_trays=3), start=1):
+            lbl = QLabel(f"{pose_name}:")
+            lbl.setStyleSheet("font-size:11px; font-weight:bold;")
+            grid_p.addWidget(lbl, row_i, 0)
+
+            edits = []
+            for col_i in range(6):
+                e = QLineEdit("0.0")
+                e.setStyleSheet(pose_edit_style)
+                e.setMinimumWidth(72)
+                grid_p.addWidget(e, row_i, col_i + 1)
+                edits.append(e)
+                # 베이스 포즈 편집 시 자동 재계산 트리거
+                if pose_name in base_pose_keys:
+                    e.editingFinished.connect(self._on_gap_param_changed)
+            self._pose_edits[pose_name] = edits
+
+        pose_count = len(_all_pose_names(num_tubes=3, num_trays=3))
+        btn_p = QPushButton("포즈 적용")
+        btn_p.setStyleSheet(apply_btn_style)
+        btn_p.clicked.connect(self._on_apply_poses)
+        grid_p.addWidget(btn_p, pose_count + 1, 0, 1, 7)
+        layout.addWidget(grp_poses)
+
+        self.btn_apply_robot_param.setText("전체 적용 (Doosan + Task + 포즈)")
+        layout.addWidget(self.btn_apply_robot_param)
+        layout.addStretch()
+
+        # UI 빌드 직후 YAML 값 즉시 로드
+        self._load_from_yaml()
+
+    # -----------------------------------------------------------------
+    # YAML 파일 직접 파싱 — 노드 연결 없이 즉시 초기값 채우기
+    # -----------------------------------------------------------------
+    def _load_from_yaml(self):
+        import yaml
+        try:
+            config_path = os.path.join(
+                get_package_share_directory('robot_control_pkg'),
+                'config', 'robot_params.yaml'
+            )
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+        except Exception as e:
+            self.log(f"[경고] robot_params.yaml 로드 실패: {e}")
+            return
+
+        doosan = config.get('doosan_robot_control_node', {}).get('ros__parameters', {})
+        task   = config.get('robot_task_manager_node',   {}).get('ros__parameters', {})
+
+        # Doosan 스칼라
+        for name, _ in _DOOSAN_SCALAR:
+            if name in doosan:
+                self._scalar_edits['doosan'][name].setText(str(doosan[name]))
+
+        # Gap 계산 파라미터
+        for name, default in _CALC_PARAMS:
+            if name in doosan:
+                self._calc_edits[name].setText(str(doosan[name]))
+
+        # 포즈 (poses.*)
+        for pose_name in _all_pose_names():
+            key = f'poses.{pose_name}'
+            if key in doosan:
+                vals = doosan[key]
+                for i, v in enumerate(vals[:6]):
+                    self._pose_edits[pose_name][i].setText(str(v))
+
+        # Task Manager 스칼라
+        for name, _ in _TASK_SCALAR:
+            if name in task:
+                self._scalar_edits['task'][name].setText(str(task[name]))
+
+        self.log("[로봇 파라미터] YAML 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 초기값 로드 — 관리자 로그인 시 GetParameters 서비스로 실시간 갱신
+    # -----------------------------------------------------------------
+    def _load_robot_params(self):
+        doosan_names = [name for name, _ in _DOOSAN_SCALAR]
+        doosan_names += [f'poses.{n}' for n in _all_pose_names(num_tubes=3, num_trays=3)]
+
+        if self.node.get_param_doosan_client.service_is_ready():
+            fut = self.node.call_get_param_doosan(doosan_names)
+            fut.add_done_callback(
+                lambda f: self._on_doosan_params_loaded(f, doosan_names))
+        else:
+            self.log("[경고] doosan 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+        task_names = [name for name, _ in _TASK_SCALAR]
+        if self.node.get_param_task_client.service_is_ready():
+            fut = self.node.call_get_param_task(task_names)
+            fut.add_done_callback(
+                lambda f: self._on_task_params_loaded(f, task_names))
+        else:
+            self.log("[경고] task_manager 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+    def _on_doosan_params_loaded(self, future, names):
+        # ROS 스핀 스레드에서 호출 — 위젯 직접 접근 금지, 시그널로 GUI 스레드에 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/doosan] 오류: {e}")
+            return
+        self._doosan_params_ready.emit(names, list(result.values))
+
+    def _apply_doosan_params(self, names, pvalues):
+        # GUI 스레드 슬롯 — 위젯 업데이트 안전
+        scalar_keys = {name for name, _ in _DOOSAN_SCALAR}
+        for name, pval in zip(names, pvalues):
+            if name in scalar_keys:
+                if pval.type == ParameterType.PARAMETER_DOUBLE:
+                    self._scalar_edits['doosan'][name].setText(f"{pval.double_value:.4f}")
+                elif pval.type == ParameterType.PARAMETER_INTEGER:
+                    self._scalar_edits['doosan'][name].setText(str(pval.integer_value))
+            elif name.startswith('poses.'):
+                pose_key = name[6:]
+                if pose_key in self._pose_edits and pval.type == ParameterType.PARAMETER_DOUBLE_ARRAY:
+                    for i, v in enumerate(list(pval.double_array_value)[:6]):
+                        self._pose_edits[pose_key][i].setText(f"{v:.4f}")
+        self.log("[로봇 파라미터] doosan 초기값 로드 완료")
+
+    def _on_task_params_loaded(self, future, names):
+        # ROS 스핀 스레드에서 호출 — 시그널로 GUI 스레드에 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/task] 오류: {e}")
+            return
+        self._task_params_ready.emit(names, list(result.values))
+
+    def _apply_task_params(self, names, pvalues):
+        # GUI 스레드 슬롯 — 위젯 업데이트 안전
+        for name, pval in zip(names, pvalues):
+            if name not in self._scalar_edits['task']:
+                continue
+            if pval.type == ParameterType.PARAMETER_DOUBLE:
+                self._scalar_edits['task'][name].setText(f"{pval.double_value:.4f}")
+            elif pval.type == ParameterType.PARAMETER_INTEGER:
+                self._scalar_edits['task'][name].setText(str(pval.integer_value))
+        self.log("[로봇 파라미터] task_manager 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 자동 재계산 — tube_gap / tray_gap / *_crood 또는 베이스 포즈 변경 시
+    #
+    # 기준(base): tray_idx=0, tube_idx=0 포즈
+    # refill_target_{t}_{u}_{type}:
+    #   [tray_crood] = base[tray_crood] + t * tray_gap  (양방향)
+    #   [tube_crood] = base[tube_crood] - u * tube_gap  (음방향)
+    # dispose_tray_{t}_tube_{u}_{type}: 동일 공식
+    # tray_transfer는 실측값이므로 자동 재계산 제외
+    # -----------------------------------------------------------------
+    def _on_gap_param_changed(self):
+        self._recalc_derived_poses()
+
+    def _recalc_derived_poses(self):
+        try:
+            tube_gap         = float(self._calc_edits['tube_gap'].text())
+            tray_gap         = float(self._calc_edits['tray_gap'].text())
+            tube_ax          = int(float(self._calc_edits['tube_crood'].text()))
+            tray_ax          = int(float(self._calc_edits['tray_crood'].text()))
+            work_z_offset    = float(self._calc_edits['work_z_offset'].text())
+            pour_tube_offset = float(self._calc_edits['pour_tube_offset'].text())
+            pour_z_offset    = float(self._calc_edits['pour_z_offset'].text())
+            pour_ry_offset   = float(self._calc_edits['pour_ry_offset'].text())
+            grip_z_offset    = float(self._calc_edits['grip_z_offset'].text())
+        except ValueError:
+            return
+
+        if not (0 <= tube_ax <= 2 and 0 <= tray_ax <= 2):
+            self.log("[경고] tube_crood/tray_crood 는 0(X)·1(Y)·2(Z) 중 하나여야 합니다.")
+            return
+
+        def read_pose(name):
+            if name not in self._pose_edits:
+                return None
+            try:
+                return [float(e.text()) for e in self._pose_edits[name]]
+            except ValueError:
+                return None
+
+        def write_pose(name, vals):
+            if name not in self._pose_edits:
+                return
+            for i, v in enumerate(vals):
+                self._pose_edits[name][i].setText(f"{v:.4f}")
+
+        refill_base  = read_pose('refill_target_0_0_approach_pose')
+        dispose_base = read_pose('dispose_tray_0_tube_0_approach_pose')
+        if refill_base is None or dispose_base is None:
+            return
+
+        for t in range(3):
+            for u in range(3):
+                # ① gap 적용 → 9개 approach 위치
+                refill_ap = list(refill_base)
+                refill_ap[tray_ax] += t * tray_gap
+                refill_ap[tube_ax] -= u * tube_gap
+
+                dispose_ap = list(dispose_base)
+                dispose_ap[tray_ax] += t * tray_gap
+                dispose_ap[tube_ax] -= u * tube_gap
+
+                # ② work: approach에서 Z만 내림
+                refill_work = list(refill_ap)
+                refill_work[2] += work_z_offset
+
+                # ③ pour: approach에서 튜브축 이동 + Z 내림 + RY 기울임
+                refill_pour = list(refill_ap)
+                refill_pour[tube_ax] += pour_tube_offset
+                refill_pour[2]       += pour_z_offset
+                refill_pour[4]       += pour_ry_offset  # RY
+
+                # ④ grip: approach에서 Z만 내림
+                dispose_grip = list(dispose_ap)
+                dispose_grip[2] += grip_z_offset
+
+                # approach 기준 포즈(0,0)는 사용자 직접 입력 — 덮어쓰지 않음
+                if not (t == 0 and u == 0):
+                    write_pose(f'refill_target_{t}_{u}_approach_pose', refill_ap)
+                    write_pose(f'dispose_tray_{t}_tube_{u}_approach_pose', dispose_ap)
+
+                # work/pour/grip은 기준(0,0) 포함 전체 재계산
+                write_pose(f'refill_target_{t}_{u}_work_pose', refill_work)
+                write_pose(f'refill_target_{t}_{u}_pour_pose', refill_pour)
+                write_pose(f'dispose_tray_{t}_tube_{u}_grip_pose', dispose_grip)
+
+    # -----------------------------------------------------------------
+    # 파라미터 범위 검증 — 오류 메시지 리스트 반환 (빈 리스트 = OK)
+    # -----------------------------------------------------------------
+    def _validate_doosan_params(self):
+        errors = []
+        for name, (lo, hi) in _DOOSAN_SCALAR_RANGES.items():
+            txt = self._scalar_edits['doosan'][name].text()
+            try:
+                val = float(txt)
+                if not (lo <= val <= hi):
+                    errors.append(f"{name}: {val}  (허용 {lo} ~ {hi})")
+            except ValueError:
+                errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
+        return errors
+
+    def _validate_task_params(self):
+        errors = []
+        for name, (lo, hi) in _TASK_SCALAR_RANGES.items():
+            txt = self._scalar_edits['task'][name].text()
+            try:
+                val = float(txt)
+                if not (lo <= val <= hi):
+                    errors.append(f"{name}: {val}  (허용 {lo} ~ {hi})")
+            except ValueError:
+                errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
+        return errors
+
+    def _validate_pose_params(self):
+        errors = []
+        axis_names = list(_POSE_AXIS_RANGES.keys())
+        for pose_name, edits in self._pose_edits.items():
+            for axis, edit in zip(axis_names, edits):
+                txt = edit.text()
+                lo, hi = _POSE_AXIS_RANGES[axis]
+                try:
+                    val = float(txt)
+                    if not (lo <= val <= hi):
+                        errors.append(f"poses.{pose_name} [{axis}]: {val}  (허용 {lo} ~ {hi})")
+                except ValueError:
+                    errors.append(f"poses.{pose_name} [{axis}]: '{txt}' — 숫자가 아닙니다")
+        return errors
+
+    def _validate_params(self):
+        return self._validate_doosan_params() + self._validate_task_params() + self._validate_pose_params()
+
+    # -----------------------------------------------------------------
+    # 파라미터 빌드 헬퍼
+    # -----------------------------------------------------------------
+    def _make_param(self, name, ptype, text):
+        pval = ParameterValue()
+        if ptype == float:
+            pval.type = ParameterType.PARAMETER_DOUBLE
+            pval.double_value = float(text)
+        else:
+            pval.type = ParameterType.PARAMETER_INTEGER
+            pval.integer_value = int(float(text))
+        p = Parameter()
+        p.name = name
+        p.value = pval
+        return p
+
+    def _build_doosan_scalar_params(self):
+        params = []
+        for name, ptype in _DOOSAN_SCALAR:
+            try:
+                params.append(self._make_param(name, ptype, self._scalar_edits['doosan'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+        return params
+
+    def _build_task_scalar_params(self):
+        params = []
+        for name, ptype in _TASK_SCALAR:
+            try:
+                params.append(self._make_param(name, ptype, self._scalar_edits['task'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+        return params
+
+    def _build_pose_params(self):
+        params = []
+        for pose_name in _all_pose_names(num_tubes=3, num_trays=3):
+            if pose_name not in self._pose_edits:
+                continue
+            try:
+                vals = [float(e.text()) for e in self._pose_edits[pose_name]]
+                pval = ParameterValue()
+                pval.type = ParameterType.PARAMETER_DOUBLE_ARRAY
+                pval.double_array_value = vals
+                p = Parameter()
+                p.name = f'poses.{pose_name}'
+                p.value = pval
+                params.append(p)
+            except ValueError:
+                self.log(f"[경고] poses.{pose_name} 파싱 실패 — 건너뜀")
+        return params
+
+    # -----------------------------------------------------------------
+    # Apply 완료 팝업 슬롯 (GUI 스레드에서 실행)
+    # -----------------------------------------------------------------
+    def _on_apply_complete(self, success, message):
+        if success:
+            QMessageBox.information(self, "파라미터 적용 완료", message)
+        else:
+            QMessageBox.warning(self, "파라미터 적용 실패",
+                                f"일부 파라미터 적용에 실패했습니다:\n\n{message}")
+
+    # -----------------------------------------------------------------
+    # 2026-06-27 soo: Vision 기능 ON/OFF 토글 그룹박스
+    # -----------------------------------------------------------------
+    _BTN_ON  = ("background:#2E7D32; color:white; font-weight:bold;"
+                " border-radius:4px; padding:8px 16px;")
+    _BTN_OFF = ("background:#616161; color:white; font-weight:bold;"
+                " border-radius:4px; padding:8px 16px;")
+
+    def _update_feature_btn(self, btn: QPushButton, on: bool):
+        btn.setChecked(on)
+        btn.setText("ON" if on else "OFF")
+        btn.setStyleSheet(self._BTN_ON if on else self._BTN_OFF)
+
+    def _setup_vision_feature_toggles(self):
+        grp = QGroupBox("Vision 기능")
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        grp.setLayout(grid)
+
+        self.btn_feat_hand = QPushButton("ON")
+        self.btn_feat_hand.setCheckable(True)
+        self.btn_feat_hand.setChecked(True)
+        self.btn_feat_hand.setStyleSheet(self._BTN_ON)
+        self.btn_feat_hand.clicked.connect(self._on_toggle_hand)
+
+        lbl = QLabel("손 감지 안전")
+        lbl.setStyleSheet("font-weight: bold;")
+        grid.addWidget(lbl, 0, 0)
+        grid.addWidget(self.btn_feat_hand, 0, 1)
+
+        self.vl_motion_vision.insertWidget(0, grp)
+
+    def _on_toggle_hand(self, checked):
+        self._update_feature_btn(self.btn_feat_hand, checked)
+        self.log(f"손 감지 안전: {'ON' if checked else 'OFF'}")
+        def run():
+            client = self.node.set_hand_safety_client
+            if client.wait_for_service(timeout_sec=3.0):
+                fut = client.call_async(SetBool.Request(data=checked))
+                def on_done(f):
+                    try:
+                        result = f.result()
+                        if not result.success:
+                            self.log_signal.emit(f"[손 감지 안전] 설정 실패: {result.message}")
+                            self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+                    except Exception as e:
+                        self.log_signal.emit(f"[손 감지 안전] 오류: {e}")
+                        self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+                fut.add_done_callback(on_done)
+            else:
+                self.log_signal.emit("[경고] /robot/set_hand_safety_enabled 서비스 미응답")
+                self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+        threading.Thread(target=run, daemon=True).start()
+
+    # -----------------------------------------------------------------
+    # 비전 파라미터 UI 셋업 — 바운딩박스/높이 신뢰도 두 항목
+    # -----------------------------------------------------------------
+    def _setup_vision_conf_ui(self):
+        self.lbl_vision_conf.setText("바운딩 박스 신뢰도")
+        self.spin_vision_confidence.setRange(0.01, 1.0)
+        self.spin_vision_confidence.setSingleStep(0.05)
+        self.spin_vision_confidence.setDecimals(2)
+        self.spin_vision_confidence.setValue(0.4)
+
+        self.spin_vision_height_conf = QDoubleSpinBox()
+        self.spin_vision_height_conf.setRange(0.01, 1.0)
+        self.spin_vision_height_conf.setSingleStep(0.05)
+        self.spin_vision_height_conf.setDecimals(2)
+        self.spin_vision_height_conf.setValue(0.4)
+        lbl_height = QLabel("높이 신뢰도")
+        # spin_vision_confidence 바로 아래(row 1)에 삽입
+        self.formLayout_vision.insertRow(1, lbl_height, self.spin_vision_height_conf)
+
+        # 2026-06-27 soo: FPS 위젯 — 기존 spin_vision_fps 재활용, 라벨 변경
+        self.lbl_vision_fps.setText("FPS")
+        self.spin_vision_fps.setRange(5.0, 15.0)
+        self.spin_vision_fps.setSingleStep(1.0)
+        self.spin_vision_fps.setDecimals(0)
+        self.spin_vision_fps.setValue(7.0)
+
+        # 2026-06-27 soo: YOLO 모델 라디오 버튼 — weights 디렉토리 스캔
+        self._model_btn_group = QButtonGroup(self)
+        self._model_radio_map = {}  # 절대경로 → QRadioButton
+
+        try:
+            weights_dir = os.path.join(
+                get_package_share_directory('vision_pkg'), 'weights')
+            model_files = sorted(
+                f for f in os.listdir(weights_dir)
+                if f.endswith('.pt') or f.endswith('.onnx')
+            )
+        except Exception:
+            weights_dir = ''
+            model_files = []
+
+        radio_widget = QWidget()
+        radio_hl = QHBoxLayout(radio_widget)
+        radio_hl.setContentsMargins(0, 0, 0, 0)
+        radio_hl.setSpacing(16)
+
+        for fname in model_files:
+            fpath = os.path.join(weights_dir, fname)
+            rb = QRadioButton(fname)
+            self._model_btn_group.addButton(rb)
+            self._model_radio_map[fpath] = rb
+            radio_hl.addWidget(rb)
+
+        if self._model_radio_map:
+            list(self._model_radio_map.values())[0].setChecked(True)
+
+        lbl_model = QLabel("YOLO 모델")
+        lbl_model.setStyleSheet("font-weight: bold;")
+        self.formLayout_vision.addRow(lbl_model, radio_widget)
+
+        self.btn_apply_vision_admin.clicked.connect(self._on_apply_vision_conf)
+
+    # -----------------------------------------------------------------
+    # 비전 confidence 초기값 로드 — 관리자 로그인 시 호출
+    # -----------------------------------------------------------------
+    def _load_vision_params(self):
+        # 2026-06-27 soo: side_camera_node FPS 로드
+        if self.node.get_param_camera_client.service_is_ready():
+            cam_names = ['publish_rate_hz']
+            fut = self.node.call_get_param_camera(cam_names)
+            fut.add_done_callback(
+                lambda f: self._on_camera_params_loaded(f, cam_names))
+        else:
+            self.log("[경고] side_camera_node 파라미터 서비스 미준비 — FPS 초기값 로드 생략")
+
+        if self.node.get_param_detector_client.service_is_ready():
+            det_names = ['confidence_threshold', 'model_path']
+            fut = self.node.call_get_param_detector(det_names)
+            fut.add_done_callback(
+                lambda f: self._on_detector_params_loaded(f, det_names))
+            # 2026-06-27 soo: ROI 파라미터 로드
+            roi_names = ['roi_x_min_px', 'roi_x_max_px']
+            fut_roi = self.node.call_get_param_detector(roi_names)
+            fut_roi.add_done_callback(
+                lambda f: self._on_detector_roi_params_loaded(f, roi_names))
+            # 2026-06-27 soo: 버퍼 파라미터 별도 요청
+            buf_names = [
+                'height_buffer_size', 'height_publish_min_samples',
+                'hand_detect_consecutive_frames', 'hand_lost_consecutive_frames',
+            ]
+            fut2 = self.node.call_get_param_detector(buf_names)
+            fut2.add_done_callback(
+                lambda f: self._on_detector_buffer_params_loaded(f, buf_names))
+        else:
+            self.log("[경고] liquid_height_detector 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+        if self.node.get_param_tube_state_client.service_is_ready():
+            fut = self.node.call_get_param_tube_state(['confidence_threshold'])
+            fut.add_done_callback(
+                lambda f: self._on_tube_state_params_loaded(f, ['confidence_threshold']))
+        else:
+            self.log("[경고] tube_state_publisher 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+    def _on_detector_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector] 오류: {e}")
+            return
+        self._detector_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_params(self, names, pvalues):
+        for name, pval in zip(names, pvalues):
+            if name == 'confidence_threshold' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_confidence.setValue(pval.double_value)
+            elif name == 'model_path' and pval.type == ParameterType.PARAMETER_STRING:
+                rb = self._model_radio_map.get(pval.string_value)
+                if rb:
+                    rb.setChecked(True)
+        self.log("[비전 파라미터] confidence / 모델 로드 완료")
+
+    def _on_tube_state_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/tube_state] 오류: {e}")
+            return
+        self._tube_state_params_ready.emit(names, list(result.values))
+
+    def _apply_tube_state_params(self, names, pvalues):
+        for name, pval in zip(names, pvalues):
+            if name == 'confidence_threshold' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_height_conf.setValue(pval.double_value)
+        self.log("[비전 파라미터] 높이 confidence 로드 완료")
+
+    def _on_camera_params_loaded(self, future, names):
+        # 2026-06-27 soo
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/camera] 오류: {e}")
+            return
+        self._camera_params_ready.emit(names, list(result.values))
+
+    def _apply_camera_params(self, names, pvalues):
+        for name, pval in zip(names, pvalues):
+            if name == 'publish_rate_hz' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_fps.setValue(pval.double_value)
+        self.log("[비전 파라미터] FPS 로드 완료")
+
+    def _on_detector_roi_params_loaded(self, future, names):
+        # 2026-06-27 soo
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector_roi] 오류: {e}")
+            return
+        self._detector_roi_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_roi_params(self, names, pvalues):
+        # 2026-06-27 soo: GUI 스레드 슬롯
+        for name, pval in zip(names, pvalues):
+            if pval.type == ParameterType.PARAMETER_DOUBLE:
+                val = int(pval.double_value)
+                if name == 'roi_x_min_px':
+                    self.spin_roi_x_min.setValue(val)
+                elif name == 'roi_x_max_px':
+                    self.spin_roi_x_max.setValue(val)
+        self.log("[비전 파라미터] 감지 영역 X 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 2026-06-27 soo: 추론 안정화 버퍼 UI 셋업 — confidence 그룹박스 아래에 동적 생성
+    # -----------------------------------------------------------------
+    def _setup_vision_buffer_ui(self):
+        grp = QGroupBox("추론 안정화 버퍼")
+        form = QFormLayout()
+        grp.setLayout(form)
+
+        self.spin_buf_size = QSpinBox()
+        self.spin_buf_size.setRange(1, 30)
+        self.spin_buf_size.setValue(5)
+        form.addRow("추론 버퍼 크기 (프레임)", self.spin_buf_size)
+
+        self.spin_buf_min_samples = QSpinBox()
+        self.spin_buf_min_samples.setRange(1, 30)
+        self.spin_buf_min_samples.setValue(3)
+        form.addRow("최소 유효 샘플 수", self.spin_buf_min_samples)
+
+        self.spin_hand_detect_frames = QSpinBox()
+        self.spin_hand_detect_frames.setRange(1, 20)
+        self.spin_hand_detect_frames.setValue(3)
+        form.addRow("손 감지 연속 프레임", self.spin_hand_detect_frames)
+
+        self.spin_hand_lost_frames = QSpinBox()
+        self.spin_hand_lost_frames.setRange(1, 20)
+        self.spin_hand_lost_frames.setValue(2)
+        form.addRow("손 해제 연속 프레임", self.spin_hand_lost_frames)
+
+        btn_apply = QPushButton("버퍼 적용")
+        btn_apply.clicked.connect(self._on_apply_vision_buffer)
+        form.addRow(btn_apply)
+
+        # spacer 바로 앞(마지막 - 1)에 삽입
+        count = self.vl_motion_vision.count()
+        self.vl_motion_vision.insertWidget(count - 1, grp)
+
+    def _on_detector_buffer_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector_buffer] 오류: {e}")
+            return
+        self._detector_buffer_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_buffer_params(self, names, pvalues):
+        mapping = {
+            'height_buffer_size':           self.spin_buf_size,
+            'height_publish_min_samples':   self.spin_buf_min_samples,
+            'hand_detect_consecutive_frames': self.spin_hand_detect_frames,
+            'hand_lost_consecutive_frames': self.spin_hand_lost_frames,
+        }
+        for name, pval in zip(names, pvalues):
+            if name in mapping and pval.type == ParameterType.PARAMETER_INTEGER:
+                mapping[name].setValue(pval.integer_value)
+        self.log("[비전 파라미터] 추론 버퍼 초기값 로드 완료")
+
+    def _on_apply_vision_buffer(self):
+        params = {
+            'height_buffer_size':             self.spin_buf_size.value(),
+            'height_publish_min_samples':     self.spin_buf_min_samples.value(),
+            'hand_detect_consecutive_frames': self.spin_hand_detect_frames.value(),
+            'hand_lost_consecutive_frames':   self.spin_hand_lost_frames.value(),
+        }
+        self.log("추론 버퍼 파라미터 적용 요청...")
+        threading.Thread(
+            target=self._apply_vision_buffer_thread,
+            args=(params,),
+            daemon=True,
+        ).start()
+
+    def _apply_vision_buffer_thread(self, params):
+        all_errors = []
+        total_applied = 0
+
+        def make_int_param(name, value):
+            pval = ParameterValue()
+            pval.type = ParameterType.PARAMETER_INTEGER
+            pval.integer_value = int(value)
+            p = Parameter()
+            p.name = name
+            p.value = pval
+            return p
+
+        def call_and_wait(call_fn, ros_params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(ros_params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(
+                            f"[{node_name}] 버퍼 파라미터 {len(result.results)}개 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=5.0)
+
+        ros_params = [make_int_param(k, v) for k, v in params.items()]
+        if self.node.set_param_detector_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_detector, ros_params, 'liquid_height_detector')
+        else:
+            all_errors.append("[liquid_height_detector] 서비스 미응답")
+            self.log_signal.emit("[경고] liquid_height_detector SetParameters 서비스 응답 없음")
+
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(True, f"추론 버퍼 {total_applied}개 적용 완료")
+
+    # -----------------------------------------------------------------
+    # 비전 confidence 적용 버튼 콜백
+    # -----------------------------------------------------------------
+    def _on_apply_vision_conf(self):
+        det_conf   = self.spin_vision_confidence.value()
+        ts_conf    = self.spin_vision_height_conf.value()
+        fps        = self.spin_vision_fps.value()
+        roi_x_min  = float(self.spin_roi_x_min.value())
+        roi_x_max  = float(self.spin_roi_x_max.value())
+        # 2026-06-27 soo: 선택된 라디오 버튼에서 모델 경로 추출
+        selected_model = next(
+            (path for path, rb in self._model_radio_map.items() if rb.isChecked()), None)
+        self.log(
+            f"비전 파라미터 적용 요청 — FPS: {fps:.0f}, "
+            f"바운딩박스: {det_conf:.2f}, 높이: {ts_conf:.2f}, "
+            f"감지영역 X: {roi_x_min:.0f}~{roi_x_max:.0f}, "
+            f"모델: {os.path.basename(selected_model) if selected_model else '없음'}"
+        )
+        threading.Thread(
+            target=self._apply_vision_conf_thread,
+            args=(det_conf, ts_conf, fps, roi_x_min, roi_x_max, selected_model),
+            daemon=True,
+        ).start()
+
+    def _apply_vision_conf_thread(self, det_conf, ts_conf, fps, roi_x_min, roi_x_max, model_path):
+        # 2026-06-27 soo: fps, roi, model_path 인자 추가
+        all_errors = []
+        total_applied = 0
+
+        def make_double_param(name, value):
+            pval = ParameterValue()
+            pval.type = ParameterType.PARAMETER_DOUBLE
+            pval.double_value = value
+            p = Parameter()
+            p.name = name
+            p.value = pval
+            return p
+
+        def call_and_wait(call_fn, params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(f"[{node_name}] 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=5.0)
+
+        # FPS — side_camera_node
+        if self.node.set_param_camera_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_camera,
+                [make_double_param('publish_rate_hz', fps)],
+                'side_camera_node')
+        else:
+            all_errors.append("[side_camera_node] 서비스 미응답")
+            self.log_signal.emit("[경고] side_camera_node SetParameters 서비스 응답 없음")
+
+        if self.node.set_param_detector_client.wait_for_service(timeout_sec=3.0):
+            # 2026-06-27 soo: model_path는 STRING 타입으로 별도 빌드
+            det_params = [
+                make_double_param('confidence_threshold', det_conf),
+                make_double_param('roi_x_min_px', roi_x_min),
+                make_double_param('roi_x_max_px', roi_x_max),
+            ]
+            if model_path:
+                mp = Parameter()
+                mp.name = 'model_path'
+                mp.value = ParameterValue(
+                    type=ParameterType.PARAMETER_STRING,
+                    string_value=model_path)
+                det_params.append(mp)
+            call_and_wait(
+                self.node.call_set_param_detector,
+                det_params,
+                'liquid_height_detector')
+        else:
+            all_errors.append("[liquid_height_detector] 서비스 미응답")
+            self.log_signal.emit("[경고] liquid_height_detector SetParameters 서비스 응답 없음")
+
+        if self.node.set_param_tube_state_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_tube_state,
+                [make_double_param('confidence_threshold', ts_conf)],
+                'tube_state_publisher')
+        else:
+            all_errors.append("[tube_state_publisher] 서비스 미응답")
+            self.log_signal.emit("[경고] tube_state_publisher SetParameters 서비스 응답 없음")
+
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(True, f"비전 파라미터 {total_applied}개 적용 완료")
+
+    # -----------------------------------------------------------------
+    # 그룹별 Apply 버튼 콜백
+    # -----------------------------------------------------------------
+    def _on_apply_doosan_scalar(self):
+        errors = self._validate_doosan_params()
+        if errors:
+            QMessageBox.warning(self, "파라미터 검증 실패",
+                                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors))
+            return
+        params = self._build_doosan_scalar_params()
+        self.log(f"Doosan 파라미터 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=(params, []), daemon=True).start()
+
+    def _on_apply_task_scalar(self):
+        errors = self._validate_task_params()
+        if errors:
+            QMessageBox.warning(self, "파라미터 검증 실패",
+                                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors))
+            return
+        params = self._build_task_scalar_params()
+        self.log(f"Task 파라미터 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=([], params), daemon=True).start()
+
+    def _on_apply_poses(self):
+        errors = self._validate_pose_params()
+        if errors:
+            QMessageBox.warning(
+                self, "포즈 파라미터 검증 실패",
+                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors)
+            )
+            return
+        params = self._build_pose_params()
+        self.log(f"포즈 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=(params, []), daemon=True).start()
+
+    # -----------------------------------------------------------------
+    # 전체 Apply 버튼 콜백 (Doosan 스칼라 + 포즈 + Task 한번에)
+    # -----------------------------------------------------------------
+    def on_apply_robot_param(self):
+        errors = self._validate_params()
+        if errors:
+            QMessageBox.warning(
+                self, "파라미터 검증 실패",
+                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors)
+            )
+            return
+
+        doosan_params = self._build_doosan_scalar_params() + self._build_pose_params()
+        task_params   = self._build_task_scalar_params()
+
+        self.log(f"전체 파라미터 적용 요청 (doosan {len(doosan_params)}개 / task {len(task_params)}개) ...")
+        threading.Thread(
+            target=self._apply_params_thread,
+            args=(doosan_params, task_params),
+            daemon=True,
+        ).start()
+
+    def _apply_params_thread(self, doosan_params, task_params):
+        all_errors = []
+        total_applied = 0
+
+        def call_and_wait(client, call_fn, params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(
+                            f"[{node_name}] 파라미터 {len(result.results)}개 전체 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=10.0)
+
+        if doosan_params:
+            if self.node.set_param_doosan_client.wait_for_service(timeout_sec=3.0):
+                call_and_wait(
+                    self.node.set_param_doosan_client,
+                    self.node.call_set_param_doosan,
+                    doosan_params, 'doosan')
+            else:
+                all_errors.append("[doosan] 서비스 미응답 — doosan_robot_control_node 실행 확인")
+                self.log_signal.emit(
+                    "[경고] doosan SetParameters 서비스 응답 없음 — "
+                    "doosan_robot_control_node 실행 중인지 확인하세요")
+
+        if task_params:
+            if self.node.set_param_task_client.wait_for_service(timeout_sec=3.0):
+                call_and_wait(
+                    self.node.set_param_task_client,
+                    self.node.call_set_param_task,
+                    task_params, 'task_manager')
+            else:
+                all_errors.append("[task_manager] 서비스 미응답 — robot_task_manager_node 실행 확인")
+                self.log_signal.emit(
+                    "[경고] task_manager SetParameters 서비스 응답 없음 — "
+                    "robot_task_manager_node 실행 중인지 확인하세요")
+
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(
+                True, f"파라미터 {total_applied}개 전체 적용 완료")
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -566,8 +1803,9 @@ def main(args=None):
 
     app_exec_code = app.exec_()
 
-    node.destroy_node()
     rclpy.shutdown()
+    spin_thread.join(timeout=3.0)
+    node.destroy_node()
     sys.exit(app_exec_code)
 
 

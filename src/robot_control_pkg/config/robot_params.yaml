@@ -31,6 +31,11 @@ doosan_robot_control_node:
     tray_crood: 0
     force_threshold: 9.0  # 외력 감지 임계값 (Nm) - 관절 토크 벡터 크기 √(T1²+…+T6²)
                           # 실측: 정상 최대 8 Nm (시약통 기울임), 외력 9~10 Nm
+    work_z_offset: -105.0
+    pour_tube_offset: 35.0
+    pour_z_offset: -45.0
+    pour_ry_offset: -45.0
+    grip_z_offset: -120.0
 
     pose_names: [
       "home_pose",

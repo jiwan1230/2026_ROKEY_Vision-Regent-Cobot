@@ -11,6 +11,7 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from rcl_interfaces.msg import SetParametersResult
 
 # 260624 jiwan side_image를 raw Image 대신 JPEG로 압축한 CompressedImage로 전송
 from sensor_msgs.msg import CompressedImage
@@ -106,6 +107,20 @@ class SideCameraNode(Node):
         self.get_logger().info(
             f"side_camera_node started (source_mode={self.source_mode}, rate={publish_rate_hz}Hz)"
         )
+        # 2026-06-27 soo: HMI에서 런타임 FPS 변경 지원
+        self.add_on_set_parameters_callback(self._on_set_parameters)
+
+    def _on_set_parameters(self, params):
+        # 2026-06-27 soo: publish_rate_hz 변경 시 타이머 재생성
+        for p in params:
+            if p.name == 'publish_rate_hz':
+                rate = float(p.value.double_value)
+                if rate > 0:
+                    self.timer.cancel()
+                    self.destroy_timer(self.timer)
+                    self.timer = self.create_timer(1.0 / rate, self.publish_frame)
+                    self._log_event(f"FPS 변경: {rate:.1f} Hz")
+        return SetParametersResult(successful=True)
 
     def _log_event(self, message, level="info"):
         getattr(self.get_logger(), level)(message)

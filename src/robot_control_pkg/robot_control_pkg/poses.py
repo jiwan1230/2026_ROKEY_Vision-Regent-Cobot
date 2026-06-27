@@ -15,6 +15,10 @@ as a reference for filling in new poses.
 HOME_POSE = "home_pose"
 WASTE_APPROACH_POSE = "waste_approach_pose"
 WASTE_RELEASE_POSE = "waste_release_pose"
+WASTE_ROTATE_POSE = "waste_rotate_pose"
+WASTE_ROTATE_MIDDLE_POSE = "waste_rotate_middle_pose"
+WASTE_ROTATE_REAGENT_POSE = "waste_rotate_reagent_pose"
+WASTE_ROTATE_TUBE_POSE = "waste_rotate_tube_pose"
 
 #20260626 JH, 버리는 위치 추가
 WASTE_ROTATE_POSE = "waste_rotate_pose"
