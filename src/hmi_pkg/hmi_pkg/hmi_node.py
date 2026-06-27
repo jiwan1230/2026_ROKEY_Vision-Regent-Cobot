@@ -212,6 +212,7 @@ class HMIDashboardApp(QDialog):
         self._grip_fail_shown = False
         self._vision_log_seen = 0
         self._force_shown = False
+        self._force_acknowledged = False  # START로 이번 감지 사건을 확인했음을 표시
         self._force_dialog = None
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
@@ -281,10 +282,14 @@ class HMIDashboardApp(QDialog):
     # 운영 버튼 콜백
     # -----------------------------------------------------------------
     def on_start(self):
-        # 외력 감지 팝업이 떠있으면 Start로 해제
+        # 외력 감지 팝업이 떠있으면 START로 해제.
+        # 센서값이 아직 True여도 _force_acknowledged=True로 이번 사건을 확인한 것으로
+        # 표시해 팝업이 다시 뜨는 것을 막는다. force_detected가 실제로 False로 돌아오면
+        # _refresh_dashboard에서 _force_acknowledged를 리셋해 다음 사건엔 다시 뜸.
         if self._force_dialog and self._force_dialog.isVisible():
             self._force_dialog.close()
         self._force_shown = False
+        self._force_acknowledged = True
         future = self.node.call_set_system_running(True)
         self.log("Start pressed - enabling automatic vision-driven control")
         future.add_done_callback(lambda f: self._log_service_result("set_system_running", f))
@@ -533,9 +538,14 @@ class HMIDashboardApp(QDialog):
 
         self._update_grip_fail_banner()
         self._update_vision_log()
-        # 외력 감지 상태 변화 시 팝업 signal 발행
-        if self.node.force_detected != self._force_shown:
-            self.force_alert_signal.emit(self.node.force_detected)
+        # 외력이 실제로 해소되면 acknowledgement 리셋 (다음 새 사건엔 다시 팝업 뜸)
+        force = self.node.force_detected
+        if not force:
+            self._force_acknowledged = False
+        # _force_acknowledged=True인 동안은 센서가 아직 True여도 팝업을 억제
+        want_popup = force and not self._force_acknowledged
+        if want_popup != self._force_shown:
+            self.force_alert_signal.emit(want_popup)
 
 
 def main(args=None):

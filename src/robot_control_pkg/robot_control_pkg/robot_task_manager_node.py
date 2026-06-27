@@ -87,6 +87,9 @@ class RobotTaskManagerNode(Node):
         self.emergency_event = threading.Event()
         # 외력 감지 전용 이벤트: 손 감지처럼 일시 정지하지만 자동 재개 없음 (Start 필요).
         self.force_event = threading.Event()
+        # 외력으로 정지된 동안 force_event가 먼저 해소돼도 STATUS_FORCE_STOP 유지용.
+        # stop_event가 풀릴 때(=Start 수신)만 같이 해제됨.
+        self._force_was_cause = False
         cb_group = ReentrantCallbackGroup()
 
         self.status_pub = self.create_publisher(RobotStatus, "/robot/status", 10)
@@ -193,13 +196,22 @@ class RobotTaskManagerNode(Node):
     def _on_force_detected(self, msg):
         if msg.data:
             self.force_event.set()
+            # main_decision_node 왕복(토픽→stop_task 서비스)을 기다리지 않고 즉시 정지.
+            # 이 순서로 set 해두면 movel() 응답이 돌아오는 시점에 stop_event가
+            # 이미 세워져 있어서 move()가 "성공"으로 통과하는 경쟁 상태를 막는다.
+            self.stop_event.set()
         else:
             self.force_event.clear()
+            # stop_event는 여기서 풀지 않음: handle_stop_task(stop=False)만 재개시킴
 
     def _check_stop(self):
         if not self.stop_event.is_set():
             return
+        # force_event가 먼저 해소되더라도 Start(stop=False)가 올 때까지는
+        # STATUS_FORCE_STOP으로 유지 (_force_was_cause sticky flag).
         if self.force_event.is_set():
+            self._force_was_cause = True
+        if self._force_was_cause:
             log_msg = "Task paused - external force detected, operator intervention required"
             self.publish_status(RobotStatus.STATUS_FORCE_STOP, detail="외력 감지 - 담당자 확인 후 START", log=log_msg)
         else:
@@ -210,6 +222,7 @@ class RobotTaskManagerNode(Node):
             if not rclpy.ok():
                 raise TaskAborted()
             time.sleep(0.1)
+        self._force_was_cause = False
         self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
@@ -553,6 +566,7 @@ class RobotTaskManagerNode(Node):
             self.stop_event.clear()
             self.emergency_event.clear()
             self.force_event.clear()
+            self._force_was_cause = False
             response.success = True
             response.message = "Resume requested; any paused task will continue"
             self.get_logger().warn("Resume requested")
