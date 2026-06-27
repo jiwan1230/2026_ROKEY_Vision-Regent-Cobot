@@ -274,6 +274,9 @@ class HMIDashboardApp(QDialog):
         self.timer.timeout.connect(self._refresh_dashboard)
         self.timer.start(150)
 
+        #20260627 JH, log 중복 출력 방지용 임시 저장소 생성
+        self._last_log = None
+
     # -----------------------------------------------------------------
     # 로그 출력
     # -----------------------------------------------------------------
@@ -524,7 +527,9 @@ class HMIDashboardApp(QDialog):
             self.label_tube0_11.setText(f"{status_msg.status}")
             self.label_tube0_10.setText(f"{status_msg.current_task or '--'}")
             self.label_tube0_9.setText(f"{status_msg.detail or '--'}")
-            self.log(status_msg.log)
+            if status_msg.log != self._last_log:
+                self.log(status_msg.log)
+                self._last_log = status_msg.log
         self._update_robot_led(status_msg)
 
         self.label_tube0_7.setText("OK" if self.node.camera_ok else "DISCONNECTED")

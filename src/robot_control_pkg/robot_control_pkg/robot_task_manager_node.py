@@ -85,11 +85,12 @@ class RobotTaskManagerNode(Node):
         # self.service_call_timeout_sec = float(self.get_parameter("service_call_timeout_sec").value)
         #end
 
-        #20260626 JH, HMI에 publish할 때, 기존 값과 달라야 보내지게 하기 위한 임시 저장소 추가
-        self._last_status = None
-        self._last_current_task = None
-        self._last_detail = None
-        self._last_log = None
+        #20260627 JH, HMI로 기능 이전
+        # #20260626 JH, HMI에 publish할 때, 기존 값과 달라야 보내지게 하기 위한 임시 저장소 추가
+        # self._last_status = None
+        # self._last_current_task = None
+        # self._last_detail = None
+        # self._last_log = None
 
         self.stop_event = threading.Event()
         # 손 감지(is_emergency=False)와 구별되는 HMI emergency stop 전용 이벤트.
@@ -157,17 +158,18 @@ class RobotTaskManagerNode(Node):
     #20260626 JH, RobotStatus publish에 log 추가(hmi 출력용)
     #20260626 JH, HMI에 publish할 때, 기존과 동일한 내용이면 전송하지 않는 로직 추가
     def publish_status(self, status, current_task="", detail="", log=""):
-        if (self._last_status == status and
-            self._last_current_task == current_task and
-            self._last_detail == detail and
-            self._last_log == log):
-            return  # 변경된 점이 없으면 여기서 함수를 종료(발행 안 함)
+        #20260627 JH, HMI로 기능 이전
+        # if (self._last_status == status and
+        #     self._last_current_task == current_task and
+        #     self._last_detail == detail and
+        #     self._last_log == log):
+        #     return  # 변경된 점이 없으면 여기서 함수를 종료(발행 안 함)
 
-        # 2. 변경점이 있다면 새로운 값으로 업데이트
-        self._last_status = status
-        self._last_current_task = current_task
-        self._last_detail = detail
-        self._last_log = log
+        # # 2. 변경점이 있다면 새로운 값으로 업데이트
+        # self._last_status = status
+        # self._last_current_task = current_task
+        # self._last_detail = detail
+        # self._last_log = log
 
         # 3. 메시지 생성 및 발행 (기존 로직)
         msg = RobotStatus()

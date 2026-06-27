@@ -134,7 +134,7 @@ class DoosanRobotControlNode(Node):
         self.declare_parameter("m_acceleration", 60.0)
         self.declare_parameter("d_velocity", 30.0)
         self.declare_parameter("d_acceleration", 30.0)
-        self.declare_parameter("move_duration_sec", 0.4)
+        self.declare_parameter("move_duration_sec", 0.3)
         # 외력 감지 임계값 (Nm) - 6개 관절 외력 토크의 벡터 크기 √(T1²+…+T6²)가 이 값을 초과하면 감지
         self.declare_parameter("force_threshold", 20.0)
 
@@ -250,9 +250,13 @@ class DoosanRobotControlNode(Node):
                 target_joints[5] += 180.0
 
             movej(target_joints, vel=30, acc=30)
-            wait(1)
+            #20260627 JH, 뒤집고 대기시간 조절, z축 털기 추가
+            wait(0.5)
+            move_periodic(amp=[0.0, 0.0, 5.0, 0.0, 0.0, 0.0], period=0.5, repeat=3, ref=DR_BASE)
+            wait(0.5)
             movej(current_joints, vel=30, acc=30)
-            wait(1)
+            wait(0.5)
+            #end
         time.sleep(self.move_duration_sec)
     #end
     
