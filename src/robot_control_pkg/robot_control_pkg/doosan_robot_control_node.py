@@ -20,7 +20,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Float64
 from std_srvs.srv import Trigger
-from dsr_msgs2.srv import MoveStop, GetExternalTorque
+from dsr_msgs2.srv import MoveStop, GetToolForce
 from interfaces.srv import MoveToPose, AddTcp, SetTcp
 from robot_control_pkg.poses import all_pose_names
 
@@ -137,8 +137,9 @@ class DoosanRobotControlNode(Node):
         self.declare_parameter("d_velocity", 30.0)
         self.declare_parameter("d_acceleration", 30.0)
         self.declare_parameter("move_duration_sec", 0.4)
-        # 외력 감지 임계값 (Nm) - 6개 관절 외력 토크의 벡터 크기 √(T1²+…+T6²)가 이 값을 초과하면 감지
-        self.declare_parameter("force_threshold", 14.0)
+        # 외력 감지 임계값 (N) - TCP Cartesian 힘 √(Fx²+Fy²+Fz²)가 이 값을 초과하면 감지
+        # 페이로드(그리퍼+시약통)가 컨트롤러에 설정돼있으면 정상 동작 중 ~0-3 N 수준
+        self.declare_parameter("force_threshold", 15.0)
 
         self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
 
@@ -153,14 +154,14 @@ class DoosanRobotControlNode(Node):
         self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
         # GetExternalTorque도 dsr_stop_node에 두어야 함: movel() 진행 중 dsr_node가
         # 블락돼도 이 클라이언트는 독립적으로 서비스를 호출할 수 있음.
-        self.get_torque_client = dsr_stop_node.create_client(
-            GetExternalTorque, "aux_control/get_external_torque"
+        self.get_tool_force_client = dsr_stop_node.create_client(
+            GetToolForce, "aux_control/get_tool_force"
         )
 
         self.force_detected_pub = self.create_publisher(Bool, "/robot/force_detected", 10)
-        # threshold 튜닝용: 매 polling마다 현재 벡터 크기를 발행
-        # ros2 topic echo /robot/torque_norm 으로 실시간 확인 가능
-        self.torque_norm_pub = self.create_publisher(Float64, "/robot/torque_norm", 10)
+        # threshold 튜닝용: 매 polling마다 현재 Cartesian 힘 크기를 발행
+        # ros2 topic echo /robot/force_norm 으로 실시간 확인 가능
+        self.force_norm_pub = self.create_publisher(Float64, "/robot/force_norm", 10)
         # 타이머에 전용 ReentrantCallbackGroup 부여: handle_move_to_pose(기본 그룹)가
         # movel()로 블락돼있는 동안에도 타이머가 실행될 수 있어야 함.
         _force_cb_group = ReentrantCallbackGroup()
@@ -308,44 +309,46 @@ class DoosanRobotControlNode(Node):
             # 드라이버가 busy할 때 서비스 응답이 안 오면 pending이 영구히 유지됨.
             # 1초 이상 stuck이면 강제로 리셋해서 다음 타이머에서 재시도.
             if time.monotonic() - self._force_pending_since > 1.0:
-                self.get_logger().warn("GetExternalTorque timed out (>1s) - resetting")
+                self.get_logger().warn("GetToolForce timed out (>1s) - resetting")
                 self._force_pending = False
             else:
                 return
         self._force_pending = True
         self._force_pending_since = time.monotonic()
         threshold = float(self.get_parameter("force_threshold").value)
-        future = self.get_torque_client.call_async(GetExternalTorque.Request())
-        future.add_done_callback(lambda f: self._on_torque_result(f, threshold))
+        req = GetToolForce.Request()
+        req.ref = DR_BASE  # 기저 좌표계 기준 Cartesian 힘 [Fx, Fy, Fz, Tx, Ty, Tz]
+        future = self.get_tool_force_client.call_async(req)
+        future.add_done_callback(lambda f: self._on_tool_force_result(f, threshold))
 
-    def _on_torque_result(self, future, threshold):
+    def _on_tool_force_result(self, future, threshold):
         self._force_pending = False
         try:
             result = future.result()
             if not result.success:
                 return
-            t = result.ext_torque
-            torque_norm = math.sqrt(sum(v ** 2 for v in t))
-            exceeded = torque_norm > threshold
+            f = result.tool_force  # [Fx, Fy, Fz, Tx, Ty, Tz]
+            # 선형 힘 크기만 사용 (XYZ 방향 무관 외력 감지)
+            force_norm = math.sqrt(f[0] ** 2 + f[1] ** 2 + f[2] ** 2)
+            exceeded = force_norm > threshold
 
             if exceeded != self._force_detected:
                 self._force_detected = exceeded
                 if exceeded:
                     self.get_logger().warn(
-                        f"External force detected: norm={torque_norm:.1f} Nm "
-                        f"T1~T6=[{t[0]:.1f},{t[1]:.1f},{t[2]:.1f},{t[3]:.1f},{t[4]:.1f},{t[5]:.1f}]"
-                        f" (threshold={threshold})"
+                        f"External force detected: norm={force_norm:.1f} N "
+                        f"[Fx={f[0]:.1f}, Fy={f[1]:.1f}, Fz={f[2]:.1f}] N "
+                        f"(threshold={threshold})"
                     )
                     # 즉시 모션 정지
                     if self.move_stop_client.service_is_ready():
                         self.move_stop_client.call_async(MoveStop.Request(stop_mode=DR_HOLD))
                 else:
                     self.get_logger().info("External force cleared")
-            # level-triggered: 상태가 바뀌지 않아도 매 polling마다 발행해서
-            # 구독자 캐시가 잘못 초기화돼도 200ms 이내에 자동 정정되게 함.
+            # level-triggered: 상태가 바뀌지 않아도 매 polling마다 발행
             self.force_detected_pub.publish(Bool(data=self._force_detected))
-            # 튜닝용: 현재 토크 벡터 크기를 항상 발행 (threshold 결정 후 제거 가능)
-            self.torque_norm_pub.publish(Float64(data=torque_norm))
+            # 튜닝용: 현재 힘 크기 발행 (ros2 topic echo /robot/force_norm)
+            self.force_norm_pub.publish(Float64(data=force_norm))
         except Exception as e:
             self.get_logger().debug(f"Force check failed: {e}")
 #end
