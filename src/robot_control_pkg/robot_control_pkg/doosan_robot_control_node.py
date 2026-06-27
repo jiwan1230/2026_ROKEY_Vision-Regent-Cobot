@@ -41,7 +41,7 @@ DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 # 260625 준형님 코드로 부분 수정
 # from DSR_ROBOT2 import movel, move_periodic
-from DSR_ROBOT2 import movel, move_periodic, get_current_posx, DR_BASE, DR_HOLD, wait
+from DSR_ROBOT2 import movej, movel, move_periodic, get_current_posx, get_current_posj, DR_BASE, DR_HOLD, wait, set_singularity_handling
 # END
 
 #20260625 JH, 가상TCP 적용을 위한 변환 추가
@@ -114,7 +114,7 @@ def get_forward_tcp(flange_pose, tcp_offset):
 class DoosanRobotControlNode(Node):
     def __init__(self):
         super().__init__("doosan_robot_control_node")
-        
+        set_singularity_handling(2)
         #20260625 JH, 기본 TCP 설정
         self.tcps = {}
         # self.current_tcp_name = "default_tcp"
@@ -192,11 +192,11 @@ class DoosanRobotControlNode(Node):
         real_target = apply_virtual_tcp(target, self.current_tcp_offset)
 
         if move_type == 'move':
-            movel(real_target, vel=[self.get_parameter("m_velocity").value, 5], acc=[self.get_parameter("m_acceleration").value, 5])
+            movel(real_target, vel=[self.get_parameter("m_velocity").value, 30], acc=[self.get_parameter("m_acceleration").value, 10])
         elif move_type == 'down':
-            movel(real_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            movel(real_target, vel=[self.get_parameter("d_velocity").value, 30], acc=[self.get_parameter("d_acceleration").value, 10])
         elif move_type == 'down_tray':
-            movel(real_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            movel(real_target, vel=[self.get_parameter("d_velocity").value, 30], acc=[self.get_parameter("d_acceleration").value, 10])
         elif move_type == 'rotate':
             current_flange = get_current_posx(DR_BASE)[0]
             tcp_rotate = [x + y for x, y in zip(self.current_tcp_offset, self.tcp_rotate_offset)]
@@ -212,23 +212,21 @@ class DoosanRobotControlNode(Node):
 
             self.get_logger().info(f"Flange 목표 좌표: {real_rotate_target}")
 
-            movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 10], acc=[self.get_parameter("d_acceleration").value, 10])
             move_periodic([0, 0, 0, 0, 0, 5], period=0.5, repeat=3)
             wait(0.5)
         #20260626 JH, 시약 버리기용 180도 회전 동작
+        #20260627 JH, 조인트 제약 회피 위해 로직 변경
         elif move_type == 'rotate_reagent':
-            current_flange = get_current_posx(DR_BASE)[0]
-            tcp_rotate = self.current_tcp_offset
-
-            edge_pose = get_forward_tcp(current_flange, tcp_rotate)
-
-            edge_pose[3] = 180
-            edge_pose[4] = -90
-            edge_pose[5] = -90
+            current_joints = get_current_posj()
+            target_joints = current_joints.copy()
             
-            real_rotate_target = apply_virtual_tcp(edge_pose, tcp_rotate)
+            if target_joints[5] > 0:
+                target_joints[5] -= 180.0
+            else:
+                target_joints[5] += 180.0
 
-            movel(real_rotate_target, vel=[self.get_parameter("d_velocity").value, 5], acc=[self.get_parameter("d_acceleration").value, 5])
+            movej(target_joints, vel=30, acc=30)
             wait(1)
         time.sleep(self.move_duration_sec)
     #end

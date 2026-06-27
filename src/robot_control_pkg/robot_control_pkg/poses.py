@@ -18,6 +18,7 @@ WASTE_RELEASE_POSE = "waste_release_pose"
 
 #20260626 JH, 버리는 위치 추가
 WASTE_ROTATE_POSE = "waste_rotate_pose"
+WASTE_ROTATE_MIDDLE_POSE = "waste_rotate_middle_pose"
 WASTE_ROTATE_REAGENT_POSE = "waste_rotate_reagent_pose"
 WASTE_ROTATE_TUBE_POSE = "waste_rotate_tube_pose"
 
@@ -82,6 +83,7 @@ def all_pose_names(num_tubes: int = 3, num_trays: int = 3) -> list:
         WASTE_APPROACH_POSE,
         WASTE_RELEASE_POSE,
         WASTE_ROTATE_POSE,
+        WASTE_ROTATE_MIDDLE_POSE,
         WASTE_ROTATE_REAGENT_POSE,
         WASTE_ROTATE_TUBE_POSE,
         TRAY_TOOL_STAND_APPROACH_POSE,

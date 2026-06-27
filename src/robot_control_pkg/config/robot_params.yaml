@@ -35,6 +35,7 @@ doosan_robot_control_node:
       "waste_approach_pose",
       "waste_release_pose",
       "waste_rotate_pose",
+      "waste_rotate_middle_pose",
       "waste_rotate_reagent_pose",
       "waste_rotate_tube_pose",
       "tray_tool_stand_approach_pose",
@@ -116,7 +117,9 @@ doosan_robot_control_node:
     poses.waste_release_pose: [273.84, -223.76, 55.0, 90.0, 180.0, -90.0]
 
     #20260626 JH
+    #20260627 JH
     poses.waste_rotate_pose: [273.84, -230.76, 55.0, 90.0, 90.0, -90.0]
+    poses.waste_rotate_middle_pose: [273.84, -323.76, 220.0, 90.0, 180.0, -90.0]
     poses.waste_rotate_reagent_pose: [42.16, -432.28, 207.77, 180.0, -90.0, 90.0]
     poses.waste_rotate_tube_pose: [357.84, -432.28, 207.77, 180.0, -90.0, 90.0]
 

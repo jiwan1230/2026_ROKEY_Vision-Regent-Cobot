@@ -33,6 +33,7 @@ from robot_control_pkg.poses import (
     WASTE_APPROACH_POSE,
     WASTE_RELEASE_POSE,
     WASTE_ROTATE_POSE,
+    WASTE_ROTATE_MIDDLE_POSE,
     WASTE_ROTATE_REAGENT_POSE,
     WASTE_ROTATE_TUBE_POSE,
     TRAY_TOOL_STAND_APPROACH_POSE,
@@ -309,7 +310,8 @@ class RobotTaskManagerNode(Node):
 
         status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to pick rotate pose"]
         self.move(WASTE_APPROACH_POSE, 'move', status)
-        self.move(WASTE_ROTATE_POSE, 'down', status)
+        self.move(WASTE_ROTATE_MIDDLE_POSE, 'move', status)
+        self.move(WASTE_ROTATE_POSE, 'move', status)
         self.grip(GripperControl.Request.COMMAND_CLOSE, status)
 
         status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to waste reagent"]
@@ -333,6 +335,7 @@ class RobotTaskManagerNode(Node):
 
         #20260626 JH, 버리고 다시 위로 이동 추가
         status = [RobotStatus.STATUS_MOVING, "move to home", f"dispose tube {idx} complete"]
+        self.move(WASTE_ROTATE_REAGENT_POSE, 'move', status)
         self.move(WASTE_ROTATE_POSE, 'move', status)
         self.move(WASTE_APPROACH_POSE, 'move', status)
         self.move(HOME_POSE, 'move', status)
