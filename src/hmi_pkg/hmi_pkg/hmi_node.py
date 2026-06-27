@@ -36,6 +36,13 @@
 #                   - _apply_params_thread에 threading.Event 도입 — 서비스 응답 후 팝업 발행
 #                   - _DOOSAN_SCALAR_RANGES / _TASK_SCALAR_RANGES 상수 추가
 #
+# 2026-06-27  soo  비전 파라미터 confidence 연결
+#                   - liquid_height_detector_node / tube_state_publisher_node 서비스 클라이언트 추가
+#                   - tab_motion_vision: 바운딩박스 신뢰도(spin_vision_confidence) +
+#                     높이 신뢰도(spin_vision_height_conf) 동적 추가
+#                   - 로그인 시 GetParameters로 초기값 로드 (_load_vision_params)
+#                   - btn_apply_vision_admin → SetParameters 두 노드에 동시 적용
+#
 # 2026-06-27  soo  좌표 자동계산 로직 개선 + waste_rotate 포즈 추가
 #                   - _CALC_PARAMS 4개 → 9개: work_z_offset, pour_tube_offset,
 #                     pour_z_offset, pour_ry_offset, grip_z_offset 추가
@@ -63,6 +70,7 @@ from PyQt5 import uic
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QMessageBox, QPushButton,
     QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
+    QDoubleSpinBox,
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -247,6 +255,15 @@ class IntegratedHMINode(Node):
             GetParameters, '/robot_task_manager_node/get_parameters')
         self.set_param_task_client = self.create_client(
             SetParameters, '/robot_task_manager_node/set_parameters')
+        # 2026-06-27 soo: 비전 노드 파라미터 서비스 클라이언트 추가
+        self.get_param_detector_client = self.create_client(
+            GetParameters, '/liquid_height_detector_node/get_parameters')
+        self.set_param_detector_client = self.create_client(
+            SetParameters, '/liquid_height_detector_node/set_parameters')
+        self.get_param_tube_state_client = self.create_client(
+            GetParameters, '/tube_state_publisher_node/get_parameters')
+        self.set_param_tube_state_client = self.create_client(
+            SetParameters, '/tube_state_publisher_node/set_parameters')
 
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
@@ -318,6 +335,27 @@ class IntegratedHMINode(Node):
         req.parameters = params
         return self.set_param_task_client.call_async(req)
 
+    # 2026-06-27 soo: 비전 노드 파라미터 get/set 헬퍼
+    def call_get_param_detector(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_detector_client.call_async(req)
+
+    def call_set_param_detector(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_detector_client.call_async(req)
+
+    def call_get_param_tube_state(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_tube_state_client.call_async(req)
+
+    def call_set_param_tube_state(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_tube_state_client.call_async(req)
+
 
 # =====================================================================
 # 2. PyQt 기반 UI 화면 클래스 (.ui 파일의 탭 구조를 그대로 사용)
@@ -328,10 +366,12 @@ class HMIDashboardApp(QDialog):
     # thread, not the Qt GUI thread - touching QTextEdit from there directly
     # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
     # marshal the string-only payload onto the GUI thread safely.
-    log_signal             = pyqtSignal(str)
-    _doosan_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
-    _task_params_ready     = pyqtSignal(object, object)  # (names, pvalues)
-    _apply_complete_signal = pyqtSignal(bool, str)       # (success, message)
+    log_signal               = pyqtSignal(str)
+    _doosan_params_ready     = pyqtSignal(object, object)  # (names, pvalues)
+    _task_params_ready       = pyqtSignal(object, object)  # (names, pvalues)
+    _detector_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
+    _tube_state_params_ready = pyqtSignal(object, object)  # (names, pvalues)
+    _apply_complete_signal   = pyqtSignal(bool, str)       # (success, message)
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -339,6 +379,8 @@ class HMIDashboardApp(QDialog):
         self.log_signal.connect(self.log)
         self._doosan_params_ready.connect(self._apply_doosan_params)
         self._task_params_ready.connect(self._apply_task_params)
+        self._detector_params_ready.connect(self._apply_detector_params)    # 2026-06-27 soo
+        self._tube_state_params_ready.connect(self._apply_tube_state_params)  # 2026-06-27 soo
         self._apply_complete_signal.connect(self._on_apply_complete)
         self.yolo_enabled = False
         self._grip_fail_shown = False
@@ -396,6 +438,7 @@ class HMIDashboardApp(QDialog):
         ]
 
         self._build_robot_param_ui()
+        self._setup_vision_conf_ui()  # 2026-06-27 soo: 비전 confidence UI 초기화
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -522,6 +565,7 @@ class HMIDashboardApp(QDialog):
             self.lbl_admin_login_status.setText("")
             self.log("시스템 관리자 로그인 성공")
             self._load_robot_params()
+            self._load_vision_params()  # 2026-06-27 soo: 로그인 시 비전 파라미터 초기값 로드
         else:
             self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
             self.input_admin_pw.clear()
@@ -1086,6 +1130,148 @@ class HMIDashboardApp(QDialog):
         else:
             QMessageBox.warning(self, "파라미터 적용 실패",
                                 f"일부 파라미터 적용에 실패했습니다:\n\n{message}")
+
+    # -----------------------------------------------------------------
+    # 비전 파라미터 UI 셋업 — 바운딩박스/높이 신뢰도 두 항목
+    # -----------------------------------------------------------------
+    def _setup_vision_conf_ui(self):
+        self.lbl_vision_conf.setText("바운딩 박스 신뢰도")
+        self.spin_vision_confidence.setRange(0.01, 1.0)
+        self.spin_vision_confidence.setSingleStep(0.05)
+        self.spin_vision_confidence.setDecimals(2)
+        self.spin_vision_confidence.setValue(0.4)
+
+        self.spin_vision_height_conf = QDoubleSpinBox()
+        self.spin_vision_height_conf.setRange(0.01, 1.0)
+        self.spin_vision_height_conf.setSingleStep(0.05)
+        self.spin_vision_height_conf.setDecimals(2)
+        self.spin_vision_height_conf.setValue(0.4)
+        lbl_height = QLabel("높이 신뢰도")
+        # spin_vision_confidence 바로 아래(row 1)에 삽입
+        self.formLayout_vision.insertRow(1, lbl_height, self.spin_vision_height_conf)
+
+        self.btn_apply_vision_admin.clicked.connect(self._on_apply_vision_conf)
+
+    # -----------------------------------------------------------------
+    # 비전 confidence 초기값 로드 — 관리자 로그인 시 호출
+    # -----------------------------------------------------------------
+    def _load_vision_params(self):
+        if self.node.get_param_detector_client.service_is_ready():
+            fut = self.node.call_get_param_detector(['confidence_threshold'])
+            fut.add_done_callback(
+                lambda f: self._on_detector_params_loaded(f, ['confidence_threshold']))
+        else:
+            self.log("[경고] liquid_height_detector 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+        if self.node.get_param_tube_state_client.service_is_ready():
+            fut = self.node.call_get_param_tube_state(['confidence_threshold'])
+            fut.add_done_callback(
+                lambda f: self._on_tube_state_params_loaded(f, ['confidence_threshold']))
+        else:
+            self.log("[경고] tube_state_publisher 파라미터 서비스 미준비 — 초기값 로드 생략")
+
+    def _on_detector_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector] 오류: {e}")
+            return
+        self._detector_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_params(self, names, pvalues):
+        for name, pval in zip(names, pvalues):
+            if name == 'confidence_threshold' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_confidence.setValue(pval.double_value)
+        self.log("[비전 파라미터] 바운딩박스 confidence 로드 완료")
+
+    def _on_tube_state_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/tube_state] 오류: {e}")
+            return
+        self._tube_state_params_ready.emit(names, list(result.values))
+
+    def _apply_tube_state_params(self, names, pvalues):
+        for name, pval in zip(names, pvalues):
+            if name == 'confidence_threshold' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_height_conf.setValue(pval.double_value)
+        self.log("[비전 파라미터] 높이 confidence 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 비전 confidence 적용 버튼 콜백
+    # -----------------------------------------------------------------
+    def _on_apply_vision_conf(self):
+        det_conf = self.spin_vision_confidence.value()
+        ts_conf  = self.spin_vision_height_conf.value()
+        self.log(f"비전 confidence 적용 요청 — 바운딩박스: {det_conf:.2f}, 높이: {ts_conf:.2f}")
+        threading.Thread(
+            target=self._apply_vision_conf_thread,
+            args=(det_conf, ts_conf),
+            daemon=True,
+        ).start()
+
+    def _apply_vision_conf_thread(self, det_conf, ts_conf):
+        all_errors = []
+        total_applied = 0
+
+        def make_double_param(name, value):
+            pval = ParameterValue()
+            pval.type = ParameterType.PARAMETER_DOUBLE
+            pval.double_value = value
+            p = Parameter()
+            p.name = name
+            p.value = pval
+            return p
+
+        def call_and_wait(call_fn, params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(f"[{node_name}] confidence 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=5.0)
+
+        if self.node.set_param_detector_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_detector,
+                [make_double_param('confidence_threshold', det_conf)],
+                'liquid_height_detector')
+        else:
+            all_errors.append("[liquid_height_detector] 서비스 미응답")
+            self.log_signal.emit("[경고] liquid_height_detector SetParameters 서비스 응답 없음")
+
+        if self.node.set_param_tube_state_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_tube_state,
+                [make_double_param('confidence_threshold', ts_conf)],
+                'tube_state_publisher')
+        else:
+            all_errors.append("[tube_state_publisher] 서비스 미응답")
+            self.log_signal.emit("[경고] tube_state_publisher SetParameters 서비스 응답 없음")
+
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(True, f"비전 confidence {total_applied}개 적용 완료")
 
     # -----------------------------------------------------------------
     # 그룹별 Apply 버튼 콜백
