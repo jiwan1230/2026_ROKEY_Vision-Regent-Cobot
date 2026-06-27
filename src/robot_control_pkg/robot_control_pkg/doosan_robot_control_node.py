@@ -124,12 +124,7 @@ class DoosanRobotControlNode(Node):
         self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
         self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
-        # 외력 감지 상태 (히스테리시스용)
         self._force_detected = False
-        # 이전 GetExternalTorque 비동기 요청이 아직 처리 중이면 True (중첩 요청 방지)
-        self._force_pending = False
-        # 요청이 stuck됐을 때 강제 리셋용 타임스탬프
-        self._force_pending_since = 0.0
 
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
@@ -305,16 +300,6 @@ class DoosanRobotControlNode(Node):
             self.get_logger().error(f"motion/move_stop call failed: {e}")
 
     def _check_external_force(self):
-        if self._force_pending:
-            # 드라이버가 busy할 때 서비스 응답이 안 오면 pending이 영구히 유지됨.
-            # 1초 이상 stuck이면 강제로 리셋해서 다음 타이머에서 재시도.
-            if time.monotonic() - self._force_pending_since > 1.0:
-                self.get_logger().warn("GetToolForce timed out (>1s) - resetting")
-                self._force_pending = False
-            else:
-                return
-        self._force_pending = True
-        self._force_pending_since = time.monotonic()
         threshold = float(self.get_parameter("force_threshold").value)
         req = GetToolForce.Request()
         req.ref = DR_BASE  # 기저 좌표계 기준 Cartesian 힘 [Fx, Fy, Fz, Tx, Ty, Tz]
@@ -322,7 +307,6 @@ class DoosanRobotControlNode(Node):
         future.add_done_callback(lambda f: self._on_tool_force_result(f, threshold))
 
     def _on_tool_force_result(self, future, threshold):
-        self._force_pending = False
         try:
             result = future.result()
             if not result.success:
