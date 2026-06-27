@@ -317,8 +317,7 @@ class RobotTaskManagerNode(Node):
         status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to waste reagent"]
         self.move(WASTE_ROTATE_REAGENT_POSE, 'move', status)
         self.move(WASTE_ROTATE_REAGENT_POSE, 'rotate_reagent', status)
-        self.move(WASTE_ROTATE_REAGENT_POSE, 'rotate_reagent', status)
-
+        
         status = [RobotStatus.STATUS_DISPOSING, "dispose", f"tube {idx} to waste tube"]
         self.move(WASTE_ROTATE_TUBE_POSE, 'move', status)
         self.grip(GripperControl.Request.COMMAND_OPEN, status)

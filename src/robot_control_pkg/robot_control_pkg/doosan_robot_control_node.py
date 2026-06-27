@@ -228,6 +228,8 @@ class DoosanRobotControlNode(Node):
 
             movej(target_joints, vel=30, acc=30)
             wait(1)
+            movej(current_joints, vel=30, acc=30)
+            wait(1)
         time.sleep(self.move_duration_sec)
     #end
     
