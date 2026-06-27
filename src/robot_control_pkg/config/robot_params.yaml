@@ -29,10 +29,10 @@ doosan_robot_control_node:
     tube_crood: 1
     tray_gap: 100.0
     tray_crood: 0
-    force_threshold: 11.0  # 외력 감지 임계값 (Nm) - 오프셋 적용 후 벡터 크기
-    # per-joint 오프셋 [T1,T2,T3,T4,T5,T6] (Nm): 정상 동작의 구조적 바이어스 제거용.
-    # 로그의 T[...] 값으로 어느 관절이 높은지 확인 후 해당 관절에 설정.
-    force_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # 실측 T[0.4, 9.6, 5.1, 0.5, -0.5, 0.4] 기준으로 T2/T3 바이어스 제거.
+    # 오프셋 적용 후 정상 노름 ~1 Nm, 외력(타격) 시 ~3~5 Nm 예상.
+    force_threshold: 3.5  # 외력 감지 임계값 (Nm) - 오프셋 적용 후 벡터 크기
+    force_offset: [0.0, 9.0, 5.0, 0.0, 0.0, 0.0]  # [T1,T2,T3,T4,T5,T6] 정상 바이어스 차감
 
     pose_names: [
       "home_pose",
