@@ -138,11 +138,7 @@ class DoosanRobotControlNode(Node):
         self.declare_parameter("d_acceleration", 30.0)
         self.declare_parameter("move_duration_sec", 0.4)
         # 외력 감지 임계값 (Nm) - 6개 관절 외력 토크의 벡터 크기 √(T1²+…+T6²)가 이 값을 초과하면 감지
-        self.declare_parameter("force_threshold", 20.0)
-        # 관절별 오프셋: 정상 동작 중 특정 관절에 고정 바이어스가 있을 때 빼줌.
-        # 예) 트레이 이동 중 J3 토크가 항상 5 Nm 높으면 [0,0,5,0,0,0]으로 설정.
-        # 기본값 [0,0,0,0,0,0] = 오프셋 없음.
-        self.declare_parameter("force_offset", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.declare_parameter("force_threshold", 14.0)
 
         self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
 
@@ -319,26 +315,17 @@ class DoosanRobotControlNode(Node):
         self._force_pending = True
         self._force_pending_since = time.monotonic()
         threshold = float(self.get_parameter("force_threshold").value)
-        offset = list(self.get_parameter("force_offset").value)
         future = self.get_torque_client.call_async(GetExternalTorque.Request())
-        future.add_done_callback(lambda f: self._on_torque_result(f, threshold, offset))
+        future.add_done_callback(lambda f: self._on_torque_result(f, threshold))
 
-    def _on_torque_result(self, future, threshold, offset):
+    def _on_torque_result(self, future, threshold):
         self._force_pending = False
         try:
             result = future.result()
             if not result.success:
                 return
             t = result.ext_torque
-            # per-joint 오프셋 적용 후 벡터 크기 계산
-            adjusted = [t[i] - offset[i] for i in range(6)]
-            torque_norm = math.sqrt(sum(v ** 2 for v in adjusted))
-            # 개별 관절 토크 로그: 어느 관절이 구조적으로 높은지 확인용
-            # 오프셋 튜닝 완료 후 아래 info 라인 제거 또는 debug로 변경 가능
-            self.get_logger().info(
-                f"T[{t[0]:.1f},{t[1]:.1f},{t[2]:.1f},{t[3]:.1f},{t[4]:.1f},{t[5]:.1f}]"
-                f" adj_norm={torque_norm:.2f}"
-            )
+            torque_norm = math.sqrt(sum(v ** 2 for v in t))
             exceeded = torque_norm > threshold
 
             if exceeded != self._force_detected:
