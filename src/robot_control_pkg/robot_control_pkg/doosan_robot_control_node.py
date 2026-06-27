@@ -128,6 +128,8 @@ class DoosanRobotControlNode(Node):
         self._force_detected = False
         # 이전 GetExternalTorque 비동기 요청이 아직 처리 중이면 True (중첩 요청 방지)
         self._force_pending = False
+        # 요청이 stuck됐을 때 강제 리셋용 타임스탬프
+        self._force_pending_since = 0.0
 
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
@@ -137,6 +139,10 @@ class DoosanRobotControlNode(Node):
         self.declare_parameter("move_duration_sec", 0.4)
         # 외력 감지 임계값 (Nm) - 6개 관절 외력 토크의 벡터 크기 √(T1²+…+T6²)가 이 값을 초과하면 감지
         self.declare_parameter("force_threshold", 20.0)
+        # 관절별 오프셋: 정상 동작 중 특정 관절에 고정 바이어스가 있을 때 빼줌.
+        # 예) 트레이 이동 중 J3 토크가 항상 5 Nm 높으면 [0,0,5,0,0,0]으로 설정.
+        # 기본값 [0,0,0,0,0,0] = 오프셋 없음.
+        self.declare_parameter("force_offset", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
 
@@ -302,32 +308,46 @@ class DoosanRobotControlNode(Node):
             self.get_logger().error(f"motion/move_stop call failed: {e}")
 
     def _check_external_force(self):
-        # 이전 요청이 아직 처리 중이면 건너뜀 (중첩 요청 방지)
         if self._force_pending:
-            return
-        if not self.get_torque_client.service_is_ready():
-            return
+            # 드라이버가 busy할 때 서비스 응답이 안 오면 pending이 영구히 유지됨.
+            # 1초 이상 stuck이면 강제로 리셋해서 다음 타이머에서 재시도.
+            if time.monotonic() - self._force_pending_since > 1.0:
+                self.get_logger().warn("GetExternalTorque timed out (>1s) - resetting")
+                self._force_pending = False
+            else:
+                return
         self._force_pending = True
+        self._force_pending_since = time.monotonic()
         threshold = float(self.get_parameter("force_threshold").value)
+        offset = list(self.get_parameter("force_offset").value)
         future = self.get_torque_client.call_async(GetExternalTorque.Request())
-        future.add_done_callback(lambda f: self._on_torque_result(f, threshold))
+        future.add_done_callback(lambda f: self._on_torque_result(f, threshold, offset))
 
-    def _on_torque_result(self, future, threshold):
+    def _on_torque_result(self, future, threshold, offset):
         self._force_pending = False
         try:
             result = future.result()
             if not result.success:
                 return
-            # 벡터 크기로 어느 방향 외력이든 동일하게 감지.
-            # max()는 힘이 여러 관절에 분산될 때 각각이 threshold 미달로 통과될 수 있음.
-            torque_norm = math.sqrt(sum(t ** 2 for t in result.ext_torque))
+            t = result.ext_torque
+            # per-joint 오프셋 적용 후 벡터 크기 계산
+            adjusted = [t[i] - offset[i] for i in range(6)]
+            torque_norm = math.sqrt(sum(v ** 2 for v in adjusted))
+            # 개별 관절 토크 로그: 어느 관절이 구조적으로 높은지 확인용
+            # 오프셋 튜닝 완료 후 아래 info 라인 제거 또는 debug로 변경 가능
+            self.get_logger().info(
+                f"T[{t[0]:.1f},{t[1]:.1f},{t[2]:.1f},{t[3]:.1f},{t[4]:.1f},{t[5]:.1f}]"
+                f" adj_norm={torque_norm:.2f}"
+            )
             exceeded = torque_norm > threshold
 
             if exceeded != self._force_detected:
                 self._force_detected = exceeded
                 if exceeded:
                     self.get_logger().warn(
-                        f"External force detected: torque norm={torque_norm:.1f} Nm (threshold={threshold})"
+                        f"External force detected: norm={torque_norm:.1f} Nm "
+                        f"T1~T6=[{t[0]:.1f},{t[1]:.1f},{t[2]:.1f},{t[3]:.1f},{t[4]:.1f},{t[5]:.1f}]"
+                        f" (threshold={threshold})"
                     )
                     # 즉시 모션 정지
                     if self.move_stop_client.service_is_ready():
