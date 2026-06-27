@@ -55,7 +55,6 @@ class LiquidHeightDetectorNode(Node):
         # end
 
         self.declare_parameter("hand_safety_enabled", True)
-        self.declare_parameter("height_publish_enabled", True)  # 2026-06-27 soo: HMI 높이 감지 ON/OFF
         self.declare_parameter("camera_timeout_sec", 3.0)
 
         # 260624 파라미터 추가
@@ -109,7 +108,6 @@ class LiquidHeightDetectorNode(Node):
         # end
 
         self.hand_safety_enabled = bool(self.get_parameter("hand_safety_enabled").value)
-        self.height_publish_enabled = bool(self.get_parameter("height_publish_enabled").value)  # 2026-06-27 soo
         self.camera_timeout_sec = float(self.get_parameter("camera_timeout_sec").value)
         self.device = self.get_parameter("device").value
 
@@ -206,9 +204,6 @@ class LiquidHeightDetectorNode(Node):
                 self.hand_detect_consecutive_frames = int(p.value.integer_value)
             elif p.name == 'hand_lost_consecutive_frames':
                 self.hand_lost_consecutive_frames = int(p.value.integer_value)
-            elif p.name == 'height_publish_enabled':  # 2026-06-27 soo
-                self.height_publish_enabled = bool(p.value.bool_value)
-                self.get_logger().info(f"높이 감지: {'ON' if self.height_publish_enabled else 'OFF'}")
             elif p.name == 'model_path':
                 # 2026-06-27 soo: HMI 모델 전환 — YOLO 재로딩
                 new_path = p.value.string_value
@@ -419,8 +414,7 @@ class LiquidHeightDetectorNode(Node):
         msg_out.tube_index = tube_index
         msg_out.liquid_height = liquid_height
         msg_out.confidence = confidence
-        if self.height_publish_enabled:  # 2026-06-27 soo
-            self.tube_height_pub.publish(msg_out)
+        self.tube_height_pub.publish(msg_out)
 
 
 def main(args=None):
