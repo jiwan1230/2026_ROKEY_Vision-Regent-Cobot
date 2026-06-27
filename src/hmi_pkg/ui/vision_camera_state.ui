@@ -362,54 +362,6 @@
          <bool>true</bool>
         </property>
        </widget>
-       <widget class="QLabel" name="lbl_gripper_force">
-     <property name="geometry">
-         <rect>
-          <x>10</x>
-          <y>70</y>
-          <width>110</width>
-          <height>20</height>
-         </rect>
-        </property>
-        <property name="text">
-         <string>그리퍼 강도:</string>
-        </property>
-       </widget>
-       <widget class="QSlider" name="slider_gripper_force">
-        <property name="geometry">
-         <rect>
-          <x>125</x>
-          <y>66</y>
-          <width>560</width>
-          <height>27</height>
-         </rect>
-        </property>
-        <property name="minimum">
-         <number>0</number>
-        </property>
-        <property name="maximum">
-         <number>100</number>
-        </property>
-        <property name="value">
-         <number>50</number>
-        </property>
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-       <widget class="QLabel" name="lbl_gripper_force_val">
-     <property name="geometry">
-         <rect>
-          <x>693</x>
-          <y>70</y>
-          <width>60</width>
-          <height>20</height>
-         </rect>
-        </property>
-        <property name="text">
-         <string>50 %</string>
-        </property>
-       </widget>
        <widget class="QPushButton" name="btn_yolo_toggle_2">
         <property name="geometry">
          <rect>
@@ -2104,142 +2056,55 @@
                        </widget>
                       </item>
                       <item row="2" column="0">
-                       <widget class="QLabel" name="lbl_vision_slot_anchor">
+                       <widget class="QLabel" name="lbl_vision_roi">
                         <property name="styleSheet"><string>font-weight: bold;</string></property>
                         <property name="text">
-                         <string>Slot Anchor Line (px):</string>
+                         <string>감지 영역 X (px):</string>
                         </property>
                        </widget>
                       </item>
                       <item row="2" column="1">
-                       <widget class="QSpinBox" name="spin_vision_slot_anchor">
-                        <property name="toolTip">
-                         <string>슬롯 앵커 기준선 Y 좌표 (픽셀)</string>
-                        </property>
-                        <property name="maximum">
-                         <number>9999</number>
-                        </property>
-                        <property name="value">
-                         <number>360</number>
-                        </property>
-                       </widget>
-                      </item>
-                      <item row="3" column="0">
-                       <widget class="QLabel" name="lbl_vision_roi">
-                        <property name="styleSheet"><string>font-weight: bold;</string></property>
-                        <property name="text">
-                         <string>ROI  (x, y, w, h):</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item row="3" column="1">
                        <layout class="QHBoxLayout" name="hl_roi">
                         <property name="spacing">
                          <number>6</number>
                         </property>
                         <item>
-                         <widget class="QLabel" name="lbl_roi_x">
-     <property name="text">
-                           <string>x</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QSpinBox" name="spin_roi_x">
-                          <property name="maximum">
-                           <number>9999</number>
-                          </property>
-                          <property name="value">
-                           <number>0</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QLabel" name="lbl_roi_y">
-     <property name="text">
-                           <string>y</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QSpinBox" name="spin_roi_y">
-                          <property name="maximum">
-                           <number>9999</number>
-                          </property>
-                          <property name="value">
-                           <number>0</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QLabel" name="lbl_roi_w">
-     <property name="text">
-                           <string>w</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QSpinBox" name="spin_roi_w">
-                          <property name="maximum">
-                           <number>9999</number>
-                          </property>
-                          <property name="value">
-                           <number>1280</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QLabel" name="lbl_roi_h">
-     <property name="text">
-                           <string>h</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QSpinBox" name="spin_roi_h">
-                          <property name="maximum">
-                           <number>9999</number>
-                          </property>
-                          <property name="value">
-                           <number>720</number>
-                          </property>
-                         </widget>
-                        </item>
-                       </layout>
-                      </item>
-                      <item row="4" column="0">
-                       <widget class="QLabel" name="lbl_vision_model">
-                        <property name="styleSheet"><string>font-weight: bold;</string></property>
-                        <property name="text">
-                         <string>YOLO 모델 (.pt/.onnx):</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item row="4" column="1">
-                       <layout class="QHBoxLayout" name="hl_model">
-                        <property name="spacing">
-                         <number>8</number>
-                        </property>
-                        <item>
-                         <widget class="QLineEdit" name="input_vision_model">
-     <property name="readOnly">
-                           <bool>true</bool>
-                          </property>
-                          <property name="placeholderText">
-                           <string>모델 파일 경로 (.pt 또는 .onnx)</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QPushButton" name="btn_browse_model">
-                          <property name="maximumSize">
-                           <size>
-                            <width>100</width>
-                            <height>16777215</height>
-                           </size>
-                          </property>
+                         <widget class="QLabel" name="lbl_roi_left">
                           <property name="text">
-                           <string>찾아보기...</string>
+                           <string>왼쪽 경계</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QSpinBox" name="spin_roi_x_min">
+                          <property name="toolTip">
+                           <string>감지 영역 왼쪽 경계 X (픽셀)</string>
+                          </property>
+                          <property name="maximum">
+                           <number>9999</number>
+                          </property>
+                          <property name="value">
+                           <number>0</number>
+                          </property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QLabel" name="lbl_roi_right">
+                          <property name="text">
+                           <string>오른쪽 경계</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QSpinBox" name="spin_roi_x_max">
+                          <property name="toolTip">
+                           <string>감지 영역 오른쪽 경계 X (픽셀)</string>
+                          </property>
+                          <property name="maximum">
+                           <number>9999</number>
+                          </property>
+                          <property name="value">
+                           <number>540</number>
                           </property>
                          </widget>
                         </item>

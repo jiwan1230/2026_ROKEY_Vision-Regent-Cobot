@@ -13,6 +13,7 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
+from rcl_interfaces.msg import SetParametersResult
 
 from interfaces.msg import TubeHeight
 # 260624 jiwan bbox_utils.py 수정에 따른 import 문 수정 + 신뢰도를 위한 buffer를 위한 deque 추가
@@ -183,6 +184,39 @@ class LiquidHeightDetectorNode(Node):
         # end
 
         self.get_logger().info("liquid_height_detector_node ready")
+        # 2026-06-27 soo: HMI에서 런타임 ROI / 버퍼 파라미터 변경 지원
+        self.add_on_set_parameters_callback(self._on_set_parameters)
+
+    def _on_set_parameters(self, params):
+        # 2026-06-27 soo
+        for p in params:
+            if p.name == 'roi_x_min_px':
+                self.roi_x_min_px = float(p.value.double_value)
+            elif p.name == 'roi_x_max_px':
+                self.roi_x_max_px = float(p.value.double_value)
+            elif p.name == 'confidence_threshold':
+                self.conf_threshold = float(p.value.double_value)
+            elif p.name == 'height_buffer_size':
+                self.height_buffer_size = int(p.value.integer_value)
+            elif p.name == 'height_publish_min_samples':
+                self.height_publish_min_samples = int(p.value.integer_value)
+            elif p.name == 'hand_detect_consecutive_frames':
+                self.hand_detect_consecutive_frames = int(p.value.integer_value)
+            elif p.name == 'hand_lost_consecutive_frames':
+                self.hand_lost_consecutive_frames = int(p.value.integer_value)
+            elif p.name == 'model_path':
+                # 2026-06-27 soo: HMI 모델 전환 — YOLO 재로딩
+                new_path = p.value.string_value
+                try:
+                    from ultralytics import YOLO
+                    self.get_logger().info(f"모델 전환 중: {new_path}")
+                    self.model = YOLO(new_path)
+                    self.class_names = self.model.names
+                    self._log_event(f"모델 전환 완료: {new_path}")
+                except Exception as e:
+                    self.get_logger().error(f"모델 로딩 실패: {e}")
+                    return SetParametersResult(successful=False, reason=str(e))
+        return SetParametersResult(successful=True)
 
     def on_yolo_enabled(self, msg: Bool):
         self.yolo_enabled = msg.data

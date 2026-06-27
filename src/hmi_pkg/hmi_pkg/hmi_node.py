@@ -60,7 +60,7 @@ import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, String, Int32
+from std_msgs.msg import Bool, String
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 # 2026-06-24 soo: side_image CompressedImage 구독으로 변경 (publisher QoS 맞춤)
 from sensor_msgs.msg import CompressedImage
@@ -70,7 +70,7 @@ from PyQt5 import uic
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QMessageBox, QPushButton,
     QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
-    QDoubleSpinBox,
+    QDoubleSpinBox, QSpinBox, QFormLayout, QRadioButton, QButtonGroup, QHBoxLayout,
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -256,6 +256,10 @@ class IntegratedHMINode(Node):
         self.set_param_task_client = self.create_client(
             SetParameters, '/robot_task_manager_node/set_parameters')
         # 2026-06-27 soo: 비전 노드 파라미터 서비스 클라이언트 추가
+        self.get_param_camera_client = self.create_client(
+            GetParameters, '/side_camera_node/get_parameters')
+        self.set_param_camera_client = self.create_client(
+            SetParameters, '/side_camera_node/set_parameters')
         self.get_param_detector_client = self.create_client(
             GetParameters, '/liquid_height_detector_node/get_parameters')
         self.set_param_detector_client = self.create_client(
@@ -267,7 +271,6 @@ class IntegratedHMINode(Node):
 
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
-        self.gripper_force_pub = self.create_publisher(Int32, "/gripper/force_cmd", 10)
 
     def _on_image(self, msg):
         try:
@@ -312,9 +315,6 @@ class IntegratedHMINode(Node):
     def publish_yolo_enabled(self, enabled: bool):
         msg = Bool(); msg.data = enabled; self.yolo_enable_pub.publish(msg)
 
-    def publish_gripper_force(self, percent: int):
-        msg = Int32(); msg.data = percent; self.gripper_force_pub.publish(msg)
-
     def call_get_param_doosan(self, names: list):
         req = GetParameters.Request()
         req.names = names
@@ -336,6 +336,16 @@ class IntegratedHMINode(Node):
         return self.set_param_task_client.call_async(req)
 
     # 2026-06-27 soo: 비전 노드 파라미터 get/set 헬퍼
+    def call_get_param_camera(self, names: list):
+        req = GetParameters.Request()
+        req.names = names
+        return self.get_param_camera_client.call_async(req)
+
+    def call_set_param_camera(self, params: list):
+        req = SetParameters.Request()
+        req.parameters = params
+        return self.set_param_camera_client.call_async(req)
+
     def call_get_param_detector(self, names: list):
         req = GetParameters.Request()
         req.names = names
@@ -369,8 +379,11 @@ class HMIDashboardApp(QDialog):
     log_signal               = pyqtSignal(str)
     _doosan_params_ready     = pyqtSignal(object, object)  # (names, pvalues)
     _task_params_ready       = pyqtSignal(object, object)  # (names, pvalues)
-    _detector_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
-    _tube_state_params_ready = pyqtSignal(object, object)  # (names, pvalues)
+    _camera_params_ready          = pyqtSignal(object, object)  # 2026-06-27 soo: FPS
+    _detector_roi_params_ready    = pyqtSignal(object, object)  # 2026-06-27 soo: ROI
+    _detector_params_ready        = pyqtSignal(object, object)  # (names, pvalues)
+    _tube_state_params_ready      = pyqtSignal(object, object)  # (names, pvalues)
+    _detector_buffer_params_ready = pyqtSignal(object, object)  # 2026-06-27 soo: 버퍼 파라미터
     _apply_complete_signal   = pyqtSignal(bool, str)       # (success, message)
 
     def __init__(self, node: IntegratedHMINode):
@@ -379,8 +392,11 @@ class HMIDashboardApp(QDialog):
         self.log_signal.connect(self.log)
         self._doosan_params_ready.connect(self._apply_doosan_params)
         self._task_params_ready.connect(self._apply_task_params)
-        self._detector_params_ready.connect(self._apply_detector_params)    # 2026-06-27 soo
-        self._tube_state_params_ready.connect(self._apply_tube_state_params)  # 2026-06-27 soo
+        self._camera_params_ready.connect(self._apply_camera_params)                # 2026-06-27 soo
+        self._detector_roi_params_ready.connect(self._apply_detector_roi_params)   # 2026-06-27 soo
+        self._detector_params_ready.connect(self._apply_detector_params)           # 2026-06-27 soo
+        self._tube_state_params_ready.connect(self._apply_tube_state_params)       # 2026-06-27 soo
+        self._detector_buffer_params_ready.connect(self._apply_detector_buffer_params)  # 2026-06-27 soo
         self._apply_complete_signal.connect(self._on_apply_complete)
         self.yolo_enabled = False
         self._grip_fail_shown = False
@@ -419,9 +435,6 @@ class HMIDashboardApp(QDialog):
         self.btn_yolo_toggle.setChecked(False)
         self.btn_yolo_toggle.clicked.connect(self.on_toggle_yolo)
 
-        self.slider_gripper_force.valueChanged.connect(self.on_gripper_force_changed)
-        self.slider_gripper_force.sliderReleased.connect(self.on_gripper_force_apply)
-
         self.btn_clear_fail.clicked.connect(self.on_clear_grip_fail)
 
         # ── 2026-06-24 soo: 시스템 관리자 탭 연결 ───────────────────
@@ -438,7 +451,8 @@ class HMIDashboardApp(QDialog):
         ]
 
         self._build_robot_param_ui()
-        self._setup_vision_conf_ui()  # 2026-06-27 soo: 비전 confidence UI 초기화
+        self._setup_vision_conf_ui()    # 2026-06-27 soo: 비전 confidence UI 초기화
+        self._setup_vision_buffer_ui()  # 2026-06-27 soo: 추론 버퍼 UI 초기화
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -524,14 +538,6 @@ class HMIDashboardApp(QDialog):
     # -----------------------------------------------------------------
     # 그리퍼 강도 콜백
     # -----------------------------------------------------------------
-    def on_gripper_force_changed(self, value):
-        self.lbl_gripper_force_val.setText(f"{value} %")
-
-    def on_gripper_force_apply(self):
-        value = self.slider_gripper_force.value()
-        self.node.publish_gripper_force(value)
-        self.log(f"그리퍼 강도 설정: {value}%")
-
     # -----------------------------------------------------------------
     # 그립 실패 알림 콜백
     # -----------------------------------------------------------------
@@ -1150,16 +1156,79 @@ class HMIDashboardApp(QDialog):
         # spin_vision_confidence 바로 아래(row 1)에 삽입
         self.formLayout_vision.insertRow(1, lbl_height, self.spin_vision_height_conf)
 
+        # 2026-06-27 soo: FPS 위젯 — 기존 spin_vision_fps 재활용, 라벨 변경
+        self.lbl_vision_fps.setText("FPS")
+        self.spin_vision_fps.setRange(5.0, 15.0)
+        self.spin_vision_fps.setSingleStep(1.0)
+        self.spin_vision_fps.setDecimals(0)
+        self.spin_vision_fps.setValue(7.0)
+
+        # 2026-06-27 soo: YOLO 모델 라디오 버튼 — weights 디렉토리 스캔
+        self._model_btn_group = QButtonGroup(self)
+        self._model_radio_map = {}  # 절대경로 → QRadioButton
+
+        try:
+            weights_dir = os.path.join(
+                get_package_share_directory('vision_pkg'), 'weights')
+            model_files = sorted(
+                f for f in os.listdir(weights_dir)
+                if f.endswith('.pt') or f.endswith('.onnx')
+            )
+        except Exception:
+            weights_dir = ''
+            model_files = []
+
+        radio_widget = QWidget()
+        radio_hl = QHBoxLayout(radio_widget)
+        radio_hl.setContentsMargins(0, 0, 0, 0)
+        radio_hl.setSpacing(16)
+
+        for fname in model_files:
+            fpath = os.path.join(weights_dir, fname)
+            rb = QRadioButton(fname)
+            self._model_btn_group.addButton(rb)
+            self._model_radio_map[fpath] = rb
+            radio_hl.addWidget(rb)
+
+        if self._model_radio_map:
+            list(self._model_radio_map.values())[0].setChecked(True)
+
+        lbl_model = QLabel("YOLO 모델")
+        lbl_model.setStyleSheet("font-weight: bold;")
+        self.formLayout_vision.addRow(lbl_model, radio_widget)
+
         self.btn_apply_vision_admin.clicked.connect(self._on_apply_vision_conf)
 
     # -----------------------------------------------------------------
     # 비전 confidence 초기값 로드 — 관리자 로그인 시 호출
     # -----------------------------------------------------------------
     def _load_vision_params(self):
-        if self.node.get_param_detector_client.service_is_ready():
-            fut = self.node.call_get_param_detector(['confidence_threshold'])
+        # 2026-06-27 soo: side_camera_node FPS 로드
+        if self.node.get_param_camera_client.service_is_ready():
+            fut = self.node.call_get_param_camera(['publish_rate_hz'])
             fut.add_done_callback(
-                lambda f: self._on_detector_params_loaded(f, ['confidence_threshold']))
+                lambda f: self._on_camera_params_loaded(f, ['publish_rate_hz']))
+        else:
+            self.log("[경고] side_camera_node 파라미터 서비스 미준비 — FPS 초기값 로드 생략")
+
+        if self.node.get_param_detector_client.service_is_ready():
+            det_names = ['confidence_threshold', 'model_path']
+            fut = self.node.call_get_param_detector(det_names)
+            fut.add_done_callback(
+                lambda f: self._on_detector_params_loaded(f, det_names))
+            # 2026-06-27 soo: ROI 파라미터 로드
+            roi_names = ['roi_x_min_px', 'roi_x_max_px']
+            fut_roi = self.node.call_get_param_detector(roi_names)
+            fut_roi.add_done_callback(
+                lambda f: self._on_detector_roi_params_loaded(f, roi_names))
+            # 2026-06-27 soo: 버퍼 파라미터 별도 요청
+            buf_names = [
+                'height_buffer_size', 'height_publish_min_samples',
+                'hand_detect_consecutive_frames', 'hand_lost_consecutive_frames',
+            ]
+            fut2 = self.node.call_get_param_detector(buf_names)
+            fut2.add_done_callback(
+                lambda f: self._on_detector_buffer_params_loaded(f, buf_names))
         else:
             self.log("[경고] liquid_height_detector 파라미터 서비스 미준비 — 초기값 로드 생략")
 
@@ -1182,7 +1251,12 @@ class HMIDashboardApp(QDialog):
         for name, pval in zip(names, pvalues):
             if name == 'confidence_threshold' and pval.type == ParameterType.PARAMETER_DOUBLE:
                 self.spin_vision_confidence.setValue(pval.double_value)
-        self.log("[비전 파라미터] 바운딩박스 confidence 로드 완료")
+            elif name == 'model_path' and pval.type == ParameterType.PARAMETER_STRING:
+                # 2026-06-27 soo: 현재 model_path에 맞는 라디오 버튼 선택
+                rb = self._model_radio_map.get(pval.string_value)
+                if rb:
+                    rb.setChecked(True)
+        self.log("[비전 파라미터] 바운딩박스 confidence / 모델 초기값 로드 완료")
 
     def _on_tube_state_params_loaded(self, future, names):
         try:
@@ -1198,20 +1272,191 @@ class HMIDashboardApp(QDialog):
                 self.spin_vision_height_conf.setValue(pval.double_value)
         self.log("[비전 파라미터] 높이 confidence 로드 완료")
 
+    def _on_camera_params_loaded(self, future, names):
+        # 2026-06-27 soo
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/camera] 오류: {e}")
+            return
+        self._camera_params_ready.emit(names, list(result.values))
+
+    def _apply_camera_params(self, names, pvalues):
+        # 2026-06-27 soo
+        for name, pval in zip(names, pvalues):
+            if name == 'publish_rate_hz' and pval.type == ParameterType.PARAMETER_DOUBLE:
+                self.spin_vision_fps.setValue(pval.double_value)
+        self.log("[비전 파라미터] FPS 초기값 로드 완료")
+
+    def _on_detector_roi_params_loaded(self, future, names):
+        # 2026-06-27 soo
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector_roi] 오류: {e}")
+            return
+        self._detector_roi_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_roi_params(self, names, pvalues):
+        # 2026-06-27 soo: GUI 스레드 슬롯
+        for name, pval in zip(names, pvalues):
+            if pval.type == ParameterType.PARAMETER_DOUBLE:
+                val = int(pval.double_value)
+                if name == 'roi_x_min_px':
+                    self.spin_roi_x_min.setValue(val)
+                elif name == 'roi_x_max_px':
+                    self.spin_roi_x_max.setValue(val)
+        self.log("[비전 파라미터] 감지 영역 X 초기값 로드 완료")
+
+    # -----------------------------------------------------------------
+    # 2026-06-27 soo: 추론 안정화 버퍼 UI 셋업 — confidence 그룹박스 아래에 동적 생성
+    # -----------------------------------------------------------------
+    def _setup_vision_buffer_ui(self):
+        grp = QGroupBox("추론 안정화 버퍼")
+        form = QFormLayout()
+        grp.setLayout(form)
+
+        self.spin_buf_size = QSpinBox()
+        self.spin_buf_size.setRange(1, 30)
+        self.spin_buf_size.setValue(5)
+        form.addRow("추론 버퍼 크기 (프레임)", self.spin_buf_size)
+
+        self.spin_buf_min_samples = QSpinBox()
+        self.spin_buf_min_samples.setRange(1, 30)
+        self.spin_buf_min_samples.setValue(3)
+        form.addRow("최소 유효 샘플 수", self.spin_buf_min_samples)
+
+        self.spin_hand_detect_frames = QSpinBox()
+        self.spin_hand_detect_frames.setRange(1, 20)
+        self.spin_hand_detect_frames.setValue(3)
+        form.addRow("손 감지 연속 프레임", self.spin_hand_detect_frames)
+
+        self.spin_hand_lost_frames = QSpinBox()
+        self.spin_hand_lost_frames.setRange(1, 20)
+        self.spin_hand_lost_frames.setValue(2)
+        form.addRow("손 해제 연속 프레임", self.spin_hand_lost_frames)
+
+        btn_apply = QPushButton("버퍼 적용")
+        btn_apply.clicked.connect(self._on_apply_vision_buffer)
+        form.addRow(btn_apply)
+
+        # spacer 바로 앞(마지막 - 1)에 삽입
+        count = self.vl_motion_vision.count()
+        self.vl_motion_vision.insertWidget(count - 1, grp)
+
+    def _on_detector_buffer_params_loaded(self, future, names):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/detector_buffer] 오류: {e}")
+            return
+        self._detector_buffer_params_ready.emit(names, list(result.values))
+
+    def _apply_detector_buffer_params(self, names, pvalues):
+        mapping = {
+            'height_buffer_size':           self.spin_buf_size,
+            'height_publish_min_samples':   self.spin_buf_min_samples,
+            'hand_detect_consecutive_frames': self.spin_hand_detect_frames,
+            'hand_lost_consecutive_frames': self.spin_hand_lost_frames,
+        }
+        for name, pval in zip(names, pvalues):
+            if name in mapping and pval.type == ParameterType.PARAMETER_INTEGER:
+                mapping[name].setValue(pval.integer_value)
+        self.log("[비전 파라미터] 추론 버퍼 초기값 로드 완료")
+
+    def _on_apply_vision_buffer(self):
+        params = {
+            'height_buffer_size':             self.spin_buf_size.value(),
+            'height_publish_min_samples':     self.spin_buf_min_samples.value(),
+            'hand_detect_consecutive_frames': self.spin_hand_detect_frames.value(),
+            'hand_lost_consecutive_frames':   self.spin_hand_lost_frames.value(),
+        }
+        self.log("추론 버퍼 파라미터 적용 요청...")
+        threading.Thread(
+            target=self._apply_vision_buffer_thread,
+            args=(params,),
+            daemon=True,
+        ).start()
+
+    def _apply_vision_buffer_thread(self, params):
+        all_errors = []
+        total_applied = 0
+
+        def make_int_param(name, value):
+            pval = ParameterValue()
+            pval.type = ParameterType.PARAMETER_INTEGER
+            pval.integer_value = int(value)
+            p = Parameter()
+            p.name = name
+            p.value = pval
+            return p
+
+        def call_and_wait(call_fn, ros_params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(ros_params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(
+                            f"[{node_name}] 버퍼 파라미터 {len(result.results)}개 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=5.0)
+
+        ros_params = [make_int_param(k, v) for k, v in params.items()]
+        if self.node.set_param_detector_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_detector, ros_params, 'liquid_height_detector')
+        else:
+            all_errors.append("[liquid_height_detector] 서비스 미응답")
+            self.log_signal.emit("[경고] liquid_height_detector SetParameters 서비스 응답 없음")
+
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(True, f"추론 버퍼 {total_applied}개 적용 완료")
+
     # -----------------------------------------------------------------
     # 비전 confidence 적용 버튼 콜백
     # -----------------------------------------------------------------
     def _on_apply_vision_conf(self):
-        det_conf = self.spin_vision_confidence.value()
-        ts_conf  = self.spin_vision_height_conf.value()
-        self.log(f"비전 confidence 적용 요청 — 바운딩박스: {det_conf:.2f}, 높이: {ts_conf:.2f}")
+        det_conf   = self.spin_vision_confidence.value()
+        ts_conf    = self.spin_vision_height_conf.value()
+        fps        = self.spin_vision_fps.value()
+        roi_x_min  = float(self.spin_roi_x_min.value())
+        roi_x_max  = float(self.spin_roi_x_max.value())
+        # 2026-06-27 soo: 선택된 라디오 버튼에서 모델 경로 추출
+        selected_model = next(
+            (path for path, rb in self._model_radio_map.items() if rb.isChecked()), None)
+        self.log(
+            f"비전 파라미터 적용 요청 — FPS: {fps:.0f}, "
+            f"바운딩박스: {det_conf:.2f}, 높이: {ts_conf:.2f}, "
+            f"감지영역 X: {roi_x_min:.0f}~{roi_x_max:.0f}, "
+            f"모델: {os.path.basename(selected_model) if selected_model else '없음'}"
+        )
         threading.Thread(
             target=self._apply_vision_conf_thread,
-            args=(det_conf, ts_conf),
+            args=(det_conf, ts_conf, fps, roi_x_min, roi_x_max, selected_model),
             daemon=True,
         ).start()
 
-    def _apply_vision_conf_thread(self, det_conf, ts_conf):
+    def _apply_vision_conf_thread(self, det_conf, ts_conf, fps, roi_x_min, roi_x_max, model_path):
+        # 2026-06-27 soo: fps, roi, model_path 인자 추가
         all_errors = []
         total_applied = 0
 
@@ -1240,7 +1485,7 @@ class HMIDashboardApp(QDialog):
                             self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
                     else:
                         total_applied += len(result.results)
-                        self.log_signal.emit(f"[{node_name}] confidence 적용 완료")
+                        self.log_signal.emit(f"[{node_name}] 적용 완료")
                 except Exception as e:
                     all_errors.append(f"[{node_name}] 오류: {e}")
                     self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
@@ -1250,10 +1495,33 @@ class HMIDashboardApp(QDialog):
             fut.add_done_callback(on_done)
             done_ev.wait(timeout=5.0)
 
+        # FPS — side_camera_node
+        if self.node.set_param_camera_client.wait_for_service(timeout_sec=3.0):
+            call_and_wait(
+                self.node.call_set_param_camera,
+                [make_double_param('publish_rate_hz', fps)],
+                'side_camera_node')
+        else:
+            all_errors.append("[side_camera_node] 서비스 미응답")
+            self.log_signal.emit("[경고] side_camera_node SetParameters 서비스 응답 없음")
+
         if self.node.set_param_detector_client.wait_for_service(timeout_sec=3.0):
+            # 2026-06-27 soo: model_path는 STRING 타입으로 별도 빌드
+            det_params = [
+                make_double_param('confidence_threshold', det_conf),
+                make_double_param('roi_x_min_px', roi_x_min),
+                make_double_param('roi_x_max_px', roi_x_max),
+            ]
+            if model_path:
+                mp = Parameter()
+                mp.name = 'model_path'
+                mp.value = ParameterValue(
+                    type=ParameterType.PARAMETER_STRING,
+                    string_value=model_path)
+                det_params.append(mp)
             call_and_wait(
                 self.node.call_set_param_detector,
-                [make_double_param('confidence_threshold', det_conf)],
+                det_params,
                 'liquid_height_detector')
         else:
             all_errors.append("[liquid_height_detector] 서비스 미응답")
@@ -1271,7 +1539,7 @@ class HMIDashboardApp(QDialog):
         if all_errors:
             self._apply_complete_signal.emit(False, "\n".join(all_errors))
         else:
-            self._apply_complete_signal.emit(True, f"비전 confidence {total_applied}개 적용 완료")
+            self._apply_complete_signal.emit(True, f"비전 파라미터 {total_applied}개 적용 완료")
 
     # -----------------------------------------------------------------
     # 그룹별 Apply 버튼 콜백
