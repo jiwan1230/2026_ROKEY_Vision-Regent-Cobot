@@ -54,7 +54,6 @@ class LiquidHeightDetectorNode(Node):
         # self.declare_parameter("tube_height_mm", 100.0)
         # end
 
-        self.declare_parameter("hand_safety_enabled", True)
         self.declare_parameter("camera_timeout_sec", 3.0)
 
         # 260624 파라미터 추가
@@ -107,7 +106,6 @@ class LiquidHeightDetectorNode(Node):
         # self.tube_height_mm = float(self.get_parameter("tube_height_mm").value)
         # end
 
-        self.hand_safety_enabled = bool(self.get_parameter("hand_safety_enabled").value)
         self.camera_timeout_sec = float(self.get_parameter("camera_timeout_sec").value)
         self.device = self.get_parameter("device").value
 
@@ -314,31 +312,23 @@ class LiquidHeightDetectorNode(Node):
         cup_boxes = [b for b in cup_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
         height_boxes = [b for b in height_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
 
-        # 260624 jiwan hand_detected 수정
-        # if self.hand_safety_enabled:
-        #     self.hand_detected_pub.publish(Bool(data=len(hand_boxes) > 0))
         hand_seen_now = len(hand_boxes) > 0
+        was_detected = self.hand_detected_state
+        if hand_seen_now:
+            self.hand_detect_count += 1
+            self.hand_lost_count = 0
+        else:
+            self.hand_lost_count += 1
+            self.hand_detect_count = 0
 
-        if self.hand_safety_enabled:
-            was_detected = self.hand_detected_state
-            if hand_seen_now:
-                self.hand_detect_count += 1
-                self.hand_lost_count = 0
-            else:
-                self.hand_lost_count += 1
-                self.hand_detect_count = 0
+        if self.hand_detect_count >= self.hand_detect_consecutive_frames:
+            self.hand_detected_state = True
+        if self.hand_lost_count >= self.hand_lost_consecutive_frames:
+            self.hand_detected_state = False
 
-            if self.hand_detect_count >= self.hand_detect_consecutive_frames:
-                self.hand_detected_state = True
-
-            if self.hand_lost_count >= self.hand_lost_consecutive_frames:
-                self.hand_detected_state = False
-
-            self.hand_detected_pub.publish(Bool(data=self.hand_detected_state))
-            if self.hand_detected_state != was_detected:
-                self._log_event("Hand detected in work area" if self.hand_detected_state else "Hand cleared from work area")
-
-        # end
+        self.hand_detected_pub.publish(Bool(data=self.hand_detected_state))
+        if self.hand_detected_state != was_detected:
+            self._log_event("Hand detected in work area" if self.hand_detected_state else "Hand cleared from work area")
             
         # 260624 jiwan tube zone/rank 함수 말고 동적 anchor 부트스트랩 + 매칭으로 교체.
         # cup이 num_tubes개 동시에 보이는 첫 순간에만 anchor를 잡고, 그 뒤로는 폐기로

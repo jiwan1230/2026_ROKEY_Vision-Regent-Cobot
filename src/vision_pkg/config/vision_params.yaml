@@ -49,8 +49,7 @@ liquid_height_detector_node:
     height_publish_min_samples: 3
     height_filter_method: "median"
 
-    # hand safety 안정화
-    hand_safety_enabled: true
+    # hand 감지 안정화
     hand_detect_consecutive_frames: 3
     hand_lost_consecutive_frames: 2
 
