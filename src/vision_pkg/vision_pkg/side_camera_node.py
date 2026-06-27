@@ -34,6 +34,7 @@ class SideCameraNode(Node):
         self.declare_parameter("image_loop", True)
         # 260624 jiwan default 값 수정
         self.declare_parameter("publish_rate_hz", 7.0)
+        self.declare_parameter("streaming_enabled", True)  # 2026-06-27 soo: HMI 스트리밍 ON/OFF
         self.declare_parameter("frame_width", 640)
         self.declare_parameter("frame_height", 480)
         # end
@@ -43,6 +44,7 @@ class SideCameraNode(Node):
         self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
         # end
 
+        self.streaming_enabled = bool(self.get_parameter("streaming_enabled").value)
         self.source_mode = self.get_parameter("source_mode").value
         self.image_loop = self.get_parameter("image_loop").value
         publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
@@ -119,6 +121,9 @@ class SideCameraNode(Node):
                     self.timer.cancel()
                     self.timer = self.create_timer(1.0 / rate, self.publish_frame)
                     self._log_event(f"FPS 변경: {rate:.1f} Hz")
+            elif p.name == 'streaming_enabled':  # 2026-06-27 soo
+                self.streaming_enabled = bool(p.value.bool_value)
+                self._log_event(f"카메라 스트리밍: {'ON' if self.streaming_enabled else 'OFF'}")
         return SetParametersResult(successful=True)
 
     def _log_event(self, message, level="info"):
@@ -141,6 +146,8 @@ class SideCameraNode(Node):
         self._log_event(f"Resolution changed to {width}x{height}")
 
     def publish_frame(self):
+        if not self.streaming_enabled:  # 2026-06-27 soo
+            return
         frame = None
 
         if self.source_mode in ("device", "video_file"):
