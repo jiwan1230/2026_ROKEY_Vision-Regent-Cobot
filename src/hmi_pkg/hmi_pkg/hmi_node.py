@@ -35,6 +35,14 @@
 #                   - 적용 완료/실패 팝업 추가 (_on_apply_complete): 서비스 응답 대기 후 표시
 #                   - _apply_params_thread에 threading.Event 도입 — 서비스 응답 후 팝업 발행
 #                   - _DOOSAN_SCALAR_RANGES / _TASK_SCALAR_RANGES 상수 추가
+#
+# 2026-06-27  soo  좌표 자동계산 로직 개선 + waste_rotate 포즈 추가
+#                   - _CALC_PARAMS 4개 → 9개: work_z_offset, pour_tube_offset,
+#                     pour_z_offset, pour_ry_offset, grip_z_offset 추가
+#                   - _recalc_derived_poses 재작성: approach 1개 기준 → 45개 전체 파생
+#                     (기존: approach/work/pour 각각 독립 base / 신규: approach→work/pour/grip 오프셋)
+#                   - base_pose_keys를 approach 2개만으로 축소
+#                   - _all_pose_names()에 waste_rotate_* 4개 추가
 # =============================================================================
 
 import sys
@@ -88,6 +96,10 @@ def _all_pose_names(num_tubes: int = 3, num_trays: int = 3) -> list:
         "home_pose",
         "waste_approach_pose",
         "waste_release_pose",
+        "waste_rotate_pose",
+        "waste_rotate_middle_pose",
+        "waste_rotate_reagent_pose",
+        "waste_rotate_tube_pose",
         "tray_tool_stand_approach_pose",
         "tray_tool_stand_grip_pose",
         "refill_source_approach_pose",
@@ -123,10 +135,15 @@ _DOOSAN_SCALAR = [
 ]
 # UI 전용 계산 파라미터 - YAML 참조용이며 로봇 노드에 declare 안 됨 (전송하지 않음)
 _CALC_PARAMS = [
-    ('tube_gap',   70.0),
-    ('tray_gap',   100.0),
-    ('tube_crood', 1),
-    ('tray_crood', 0),
+    ('tube_gap',          70.0),
+    ('tray_gap',          100.0),
+    ('tube_crood',        1),
+    ('tray_crood',        0),
+    ('work_z_offset',    -105.0),   # approach → work Z 차이
+    ('pour_tube_offset',  35.0),    # approach → pour 튜브축 방향 차이
+    ('pour_z_offset',    -45.0),    # approach → pour Z 차이
+    ('pour_ry_offset',   -45.0),    # approach → pour RY 차이
+    ('grip_z_offset',   -120.0),    # approach → grip Z 차이 (dispose)
 ]
 # robot_task_manager_node에 declare된 스칼라 파라미터
 _TASK_SCALAR = [
@@ -137,10 +154,6 @@ _TASK_SCALAR = [
     ('normal_confirm_count',     int),
     ('num_trays',                int),
 ]
-
-# 자동 재계산 대상 포즈 타입
-_REFILL_POSE_TYPES  = ('approach_pose', 'work_pose', 'pour_pose')
-_DISPOSE_POSE_TYPES = ('approach_pose', 'grip_pose')
 
 # 파라미터 허용 범위 (min, max)
 _DOOSAN_SCALAR_RANGES = {
@@ -656,6 +669,10 @@ class HMIDashboardApp(QDialog):
             "font-size:12px; font-weight:bold;"
             " background:#E3F2FD; padding:3px 6px;"
         )
+        apply_btn_style = (
+            "background:#1565C0; color:white; font-size:13px; font-weight:bold;"
+            " border-radius:4px; padding:5px 12px; margin-top:4px;"
+        )
 
         # ── Doosan 스칼라 파라미터 그룹 ──────────────────────────────
         grp_doosan = QGroupBox("Doosan 파라미터 (doosan_robot_control_node)")
@@ -673,6 +690,10 @@ class HMIDashboardApp(QDialog):
             grid_d.addWidget(lbl, row, 0)
             grid_d.addWidget(edit, row, 1)
             self._scalar_edits['doosan'][name] = edit
+        btn_d = QPushButton("Doosan 파라미터 적용")
+        btn_d.setStyleSheet(apply_btn_style)
+        btn_d.clicked.connect(self._on_apply_doosan_scalar)
+        grid_d.addWidget(btn_d, len(_DOOSAN_SCALAR), 0, 1, 2)
         layout.addWidget(grp_doosan)
 
         # ── 자동 재계산용 gap 파라미터 그룹 (UI 전용, 로봇에 전송 안 함) ──
@@ -717,6 +738,10 @@ class HMIDashboardApp(QDialog):
             grid_t.addWidget(lbl, row, 0)
             grid_t.addWidget(edit, row, 1)
             self._scalar_edits['task'][name] = edit
+        btn_t = QPushButton("Task 파라미터 적용")
+        btn_t.setStyleSheet(apply_btn_style)
+        btn_t.clicked.connect(self._on_apply_task_scalar)
+        grid_t.addWidget(btn_t, len(_TASK_SCALAR), 0, 1, 2)
         layout.addWidget(grp_task)
 
         # ── 포즈 파라미터 그룹 (poses.*) ────────────────────────────
@@ -737,12 +762,11 @@ class HMIDashboardApp(QDialog):
             " font-family:monospace; border:1px solid #1565C0;"
             " border-radius:3px; padding:2px 5px;"
         )
-        # 자동 재계산 기준이 되는 베이스 포즈
-        base_pose_keys = set()
-        for pt in _REFILL_POSE_TYPES:
-            base_pose_keys.add(f'refill_target_0_0_{pt}')
-        for pt in _DISPOSE_POSE_TYPES:
-            base_pose_keys.add(f'dispose_tray_0_tube_0_{pt}')
+        # 자동 재계산 기준 포즈 — approach만 사용자가 직접 입력, 나머지는 파생
+        base_pose_keys = {
+            'refill_target_0_0_approach_pose',
+            'dispose_tray_0_tube_0_approach_pose',
+        }
 
         for row_i, pose_name in enumerate(_all_pose_names(num_tubes=3, num_trays=3), start=1):
             lbl = QLabel(f"{pose_name}:")
@@ -761,7 +785,14 @@ class HMIDashboardApp(QDialog):
                     e.editingFinished.connect(self._on_gap_param_changed)
             self._pose_edits[pose_name] = edits
 
+        pose_count = len(_all_pose_names(num_tubes=3, num_trays=3))
+        btn_p = QPushButton("포즈 적용")
+        btn_p.setStyleSheet(apply_btn_style)
+        btn_p.clicked.connect(self._on_apply_poses)
+        grid_p.addWidget(btn_p, pose_count + 1, 0, 1, 7)
         layout.addWidget(grp_poses)
+
+        self.btn_apply_robot_param.setText("전체 적용 (Doosan + Task + 포즈)")
         layout.addWidget(self.btn_apply_robot_param)
         layout.addStretch()
 
@@ -894,10 +925,15 @@ class HMIDashboardApp(QDialog):
 
     def _recalc_derived_poses(self):
         try:
-            tube_gap = float(self._calc_edits['tube_gap'].text())
-            tray_gap = float(self._calc_edits['tray_gap'].text())
-            tube_ax  = int(float(self._calc_edits['tube_crood'].text()))
-            tray_ax  = int(float(self._calc_edits['tray_crood'].text()))
+            tube_gap         = float(self._calc_edits['tube_gap'].text())
+            tray_gap         = float(self._calc_edits['tray_gap'].text())
+            tube_ax          = int(float(self._calc_edits['tube_crood'].text()))
+            tray_ax          = int(float(self._calc_edits['tray_crood'].text()))
+            work_z_offset    = float(self._calc_edits['work_z_offset'].text())
+            pour_tube_offset = float(self._calc_edits['pour_tube_offset'].text())
+            pour_z_offset    = float(self._calc_edits['pour_z_offset'].text())
+            pour_ry_offset   = float(self._calc_edits['pour_ry_offset'].text())
+            grip_z_offset    = float(self._calc_edits['grip_z_offset'].text())
         except ValueError:
             return
 
@@ -919,38 +955,50 @@ class HMIDashboardApp(QDialog):
             for i, v in enumerate(vals):
                 self._pose_edits[name][i].setText(f"{v:.4f}")
 
-        # refill_target: 기준 = tray 0, tube 0
-        for pt in _REFILL_POSE_TYPES:
-            base = read_pose(f'refill_target_0_0_{pt}')
-            if base is None:
-                continue
-            for t in range(3):
-                for u in range(3):
-                    if t == 0 and u == 0:
-                        continue
-                    derived = list(base)
-                    derived[tray_ax] = base[tray_ax] + t * tray_gap
-                    derived[tube_ax] = base[tube_ax] - u * tube_gap
-                    write_pose(f'refill_target_{t}_{u}_{pt}', derived)
+        refill_base  = read_pose('refill_target_0_0_approach_pose')
+        dispose_base = read_pose('dispose_tray_0_tube_0_approach_pose')
+        if refill_base is None or dispose_base is None:
+            return
 
-        # dispose_tray: 기준 = tray 0, tube 0
-        for pt in _DISPOSE_POSE_TYPES:
-            base = read_pose(f'dispose_tray_0_tube_0_{pt}')
-            if base is None:
-                continue
-            for t in range(3):
-                for u in range(3):
-                    if t == 0 and u == 0:
-                        continue
-                    derived = list(base)
-                    derived[tray_ax] = base[tray_ax] + t * tray_gap
-                    derived[tube_ax] = base[tube_ax] - u * tube_gap
-                    write_pose(f'dispose_tray_{t}_tube_{u}_{pt}', derived)
+        for t in range(3):
+            for u in range(3):
+                # ① gap 적용 → 9개 approach 위치
+                refill_ap = list(refill_base)
+                refill_ap[tray_ax] += t * tray_gap
+                refill_ap[tube_ax] -= u * tube_gap
+
+                dispose_ap = list(dispose_base)
+                dispose_ap[tray_ax] += t * tray_gap
+                dispose_ap[tube_ax] -= u * tube_gap
+
+                # ② work: approach에서 Z만 내림
+                refill_work = list(refill_ap)
+                refill_work[2] += work_z_offset
+
+                # ③ pour: approach에서 튜브축 이동 + Z 내림 + RY 기울임
+                refill_pour = list(refill_ap)
+                refill_pour[tube_ax] += pour_tube_offset
+                refill_pour[2]       += pour_z_offset
+                refill_pour[4]       += pour_ry_offset  # RY
+
+                # ④ grip: approach에서 Z만 내림
+                dispose_grip = list(dispose_ap)
+                dispose_grip[2] += grip_z_offset
+
+                # approach 기준 포즈(0,0)는 사용자 직접 입력 — 덮어쓰지 않음
+                if not (t == 0 and u == 0):
+                    write_pose(f'refill_target_{t}_{u}_approach_pose', refill_ap)
+                    write_pose(f'dispose_tray_{t}_tube_{u}_approach_pose', dispose_ap)
+
+                # work/pour/grip은 기준(0,0) 포함 전체 재계산
+                write_pose(f'refill_target_{t}_{u}_work_pose', refill_work)
+                write_pose(f'refill_target_{t}_{u}_pour_pose', refill_pour)
+                write_pose(f'dispose_tray_{t}_tube_{u}_grip_pose', dispose_grip)
 
     # -----------------------------------------------------------------
     # 파라미터 범위 검증 — 오류 메시지 리스트 반환 (빈 리스트 = OK)
     # -----------------------------------------------------------------
-    def _validate_params(self):
+    def _validate_doosan_params(self):
         errors = []
         for name, (lo, hi) in _DOOSAN_SCALAR_RANGES.items():
             txt = self._scalar_edits['doosan'][name].text()
@@ -960,6 +1008,10 @@ class HMIDashboardApp(QDialog):
                     errors.append(f"{name}: {val}  (허용 {lo} ~ {hi})")
             except ValueError:
                 errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
+        return errors
+
+    def _validate_task_params(self):
+        errors = []
         for name, (lo, hi) in _TASK_SCALAR_RANGES.items():
             txt = self._scalar_edits['task'][name].text()
             try:
@@ -969,6 +1021,61 @@ class HMIDashboardApp(QDialog):
             except ValueError:
                 errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
         return errors
+
+    def _validate_params(self):
+        return self._validate_doosan_params() + self._validate_task_params()
+
+    # -----------------------------------------------------------------
+    # 파라미터 빌드 헬퍼
+    # -----------------------------------------------------------------
+    def _make_param(self, name, ptype, text):
+        pval = ParameterValue()
+        if ptype == float:
+            pval.type = ParameterType.PARAMETER_DOUBLE
+            pval.double_value = float(text)
+        else:
+            pval.type = ParameterType.PARAMETER_INTEGER
+            pval.integer_value = int(float(text))
+        p = Parameter()
+        p.name = name
+        p.value = pval
+        return p
+
+    def _build_doosan_scalar_params(self):
+        params = []
+        for name, ptype in _DOOSAN_SCALAR:
+            try:
+                params.append(self._make_param(name, ptype, self._scalar_edits['doosan'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+        return params
+
+    def _build_task_scalar_params(self):
+        params = []
+        for name, ptype in _TASK_SCALAR:
+            try:
+                params.append(self._make_param(name, ptype, self._scalar_edits['task'][name].text()))
+            except ValueError:
+                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
+        return params
+
+    def _build_pose_params(self):
+        params = []
+        for pose_name in _all_pose_names(num_tubes=3, num_trays=3):
+            if pose_name not in self._pose_edits:
+                continue
+            try:
+                vals = [float(e.text()) for e in self._pose_edits[pose_name]]
+                pval = ParameterValue()
+                pval.type = ParameterType.PARAMETER_DOUBLE_ARRAY
+                pval.double_array_value = vals
+                p = Parameter()
+                p.name = f'poses.{pose_name}'
+                p.value = pval
+                params.append(p)
+            except ValueError:
+                self.log(f"[경고] poses.{pose_name} 파싱 실패 — 건너뜀")
+        return params
 
     # -----------------------------------------------------------------
     # Apply 완료 팝업 슬롯 (GUI 스레드에서 실행)
@@ -981,7 +1088,35 @@ class HMIDashboardApp(QDialog):
                                 f"일부 파라미터 적용에 실패했습니다:\n\n{message}")
 
     # -----------------------------------------------------------------
-    # Apply 버튼 콜백 — 파라미터 빌드 후 백그라운드 스레드에서 서비스 호출
+    # 그룹별 Apply 버튼 콜백
+    # -----------------------------------------------------------------
+    def _on_apply_doosan_scalar(self):
+        errors = self._validate_doosan_params()
+        if errors:
+            QMessageBox.warning(self, "파라미터 검증 실패",
+                                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors))
+            return
+        params = self._build_doosan_scalar_params()
+        self.log(f"Doosan 파라미터 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=(params, []), daemon=True).start()
+
+    def _on_apply_task_scalar(self):
+        errors = self._validate_task_params()
+        if errors:
+            QMessageBox.warning(self, "파라미터 검증 실패",
+                                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors))
+            return
+        params = self._build_task_scalar_params()
+        self.log(f"Task 파라미터 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=([], params), daemon=True).start()
+
+    def _on_apply_poses(self):
+        params = self._build_pose_params()
+        self.log(f"포즈 적용 요청 ({len(params)}개)...")
+        threading.Thread(target=self._apply_params_thread, args=(params, []), daemon=True).start()
+
+    # -----------------------------------------------------------------
+    # 전체 Apply 버튼 콜백 (Doosan 스칼라 + 포즈 + Task 한번에)
     # -----------------------------------------------------------------
     def on_apply_robot_param(self):
         errors = self._validate_params()
@@ -992,58 +1127,10 @@ class HMIDashboardApp(QDialog):
             )
             return
 
-        def make_param(name, ptype, text):
-            pval = ParameterValue()
-            if ptype == float:
-                pval.type = ParameterType.PARAMETER_DOUBLE
-                pval.double_value = float(text)
-            else:
-                pval.type = ParameterType.PARAMETER_INTEGER
-                pval.integer_value = int(float(text))
-            p = Parameter()
-            p.name = name
-            p.value = pval
-            return p
+        doosan_params = self._build_doosan_scalar_params() + self._build_pose_params()
+        task_params   = self._build_task_scalar_params()
 
-        # doosan 스칼라
-        doosan_params = []
-        for name, ptype in _DOOSAN_SCALAR:
-            try:
-                doosan_params.append(
-                    make_param(name, ptype, self._scalar_edits['doosan'][name].text()))
-            except ValueError:
-                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
-
-        # doosan 포즈 (73개)
-        for pose_name in _all_pose_names(num_tubes=3, num_trays=3):
-            if pose_name not in self._pose_edits:
-                continue
-            try:
-                vals = [float(e.text()) for e in self._pose_edits[pose_name]]
-                pval = ParameterValue()
-                pval.type = ParameterType.PARAMETER_DOUBLE_ARRAY
-                pval.double_array_value = vals
-                p = Parameter()
-                p.name = f'poses.{pose_name}'
-                p.value = pval
-                doosan_params.append(p)
-            except ValueError:
-                self.log(f"[경고] poses.{pose_name} 파싱 실패 — 건너뜀")
-
-        # task_manager 스칼라
-        task_params = []
-        for name, ptype in _TASK_SCALAR:
-            try:
-                task_params.append(
-                    make_param(name, ptype, self._scalar_edits['task'][name].text()))
-            except ValueError:
-                self.log(f"[경고] {name} 파싱 실패 — 건너뜀")
-
-        self.log(
-            f"파라미터 적용 요청 중 "
-            f"(doosan {len(doosan_params)}개 / task {len(task_params)}개) ...")
-
-        # 서비스 대기 + 호출을 블로킹하지 않도록 백그라운드 스레드에서 실행
+        self.log(f"전체 파라미터 적용 요청 (doosan {len(doosan_params)}개 / task {len(task_params)}개) ...")
         threading.Thread(
             target=self._apply_params_thread,
             args=(doosan_params, task_params),
