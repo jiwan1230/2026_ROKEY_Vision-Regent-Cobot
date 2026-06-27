@@ -180,6 +180,15 @@ _TASK_SCALAR_RANGES = {
     'normal_confirm_count':     (1,    50),
     'num_trays':                (1,    5),
 }
+# DR-M0609 작업 반경 900mm 기준. ZYZ 오일러 각도는 ±180°.
+_POSE_AXIS_RANGES = {
+    'X':  (-950.0,  950.0),
+    'Y':  (-950.0,  950.0),
+    'Z':  (-200.0, 1300.0),
+    'RX': (-180.0,  180.0),
+    'RY': (-180.0,  180.0),
+    'RZ': (-180.0,  180.0),
+}
 
 
 # 2026-06-24 soo: CompressedImage(JPEG) → bgr8 numpy 변환
@@ -1077,8 +1086,23 @@ class HMIDashboardApp(QDialog):
                 errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
         return errors
 
+    def _validate_pose_params(self):
+        errors = []
+        axis_names = list(_POSE_AXIS_RANGES.keys())
+        for pose_name, edits in self._pose_edits.items():
+            for axis, edit in zip(axis_names, edits):
+                txt = edit.text()
+                lo, hi = _POSE_AXIS_RANGES[axis]
+                try:
+                    val = float(txt)
+                    if not (lo <= val <= hi):
+                        errors.append(f"poses.{pose_name} [{axis}]: {val}  (허용 {lo} ~ {hi})")
+                except ValueError:
+                    errors.append(f"poses.{pose_name} [{axis}]: '{txt}' — 숫자가 아닙니다")
+        return errors
+
     def _validate_params(self):
-        return self._validate_doosan_params() + self._validate_task_params()
+        return self._validate_doosan_params() + self._validate_task_params() + self._validate_pose_params()
 
     # -----------------------------------------------------------------
     # 파라미터 빌드 헬퍼
@@ -1623,6 +1647,13 @@ class HMIDashboardApp(QDialog):
         threading.Thread(target=self._apply_params_thread, args=([], params), daemon=True).start()
 
     def _on_apply_poses(self):
+        errors = self._validate_pose_params()
+        if errors:
+            QMessageBox.warning(
+                self, "포즈 파라미터 검증 실패",
+                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors)
+            )
+            return
         params = self._build_pose_params()
         self.log(f"포즈 적용 요청 ({len(params)}개)...")
         threading.Thread(target=self._apply_params_thread, args=(params, []), daemon=True).start()
@@ -1724,8 +1755,9 @@ def main(args=None):
 
     app_exec_code = app.exec_()
 
-    node.destroy_node()
     rclpy.shutdown()
+    spin_thread.join(timeout=3.0)
+    node.destroy_node()
     sys.exit(app_exec_code)
 
 

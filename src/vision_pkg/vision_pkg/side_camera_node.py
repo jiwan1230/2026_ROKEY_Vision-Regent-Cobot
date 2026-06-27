@@ -119,6 +119,7 @@ class SideCameraNode(Node):
                 rate = float(p.value.double_value)
                 if rate > 0:
                     self.timer.cancel()
+                    self.destroy_timer(self.timer)
                     self.timer = self.create_timer(1.0 / rate, self.publish_frame)
                     self._log_event(f"FPS 변경: {rate:.1f} Hz")
             elif p.name == 'streaming_enabled':  # 2026-06-27 soo
