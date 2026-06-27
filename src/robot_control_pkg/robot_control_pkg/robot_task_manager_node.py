@@ -85,6 +85,11 @@ class RobotTaskManagerNode(Node):
         # 손 감지(is_emergency=False)와 구별되는 HMI emergency stop 전용 이벤트.
         # pour 루프에서 이 둘을 다르게 처리: 손 감지는 세우고 재개, emergency는 세우고 반납.
         self.emergency_event = threading.Event()
+        # 외력 감지 전용 이벤트: 손 감지처럼 일시 정지하지만 자동 재개 없음 (Start 필요).
+        self.force_event = threading.Event()
+        # 외력으로 정지된 동안 force_event가 먼저 해소돼도 STATUS_FORCE_STOP 유지용.
+        # stop_event가 풀릴 때(=Start 수신)만 같이 해제됨.
+        self._force_was_cause = False
         cb_group = ReentrantCallbackGroup()
 
         self.status_pub = self.create_publisher(RobotStatus, "/robot/status", 10)
@@ -126,6 +131,12 @@ class RobotTaskManagerNode(Node):
         )
         self.create_service(
             StopTask, "/robot/stop_task", self.handle_stop_task, callback_group=cb_group
+        )
+        # 외력 감지 토픽 구독: force_event 갱신용
+        from std_msgs.msg import Bool as BoolMsg
+        self.create_subscription(
+            BoolMsg, "/robot/force_detected", self._on_force_detected, 10,
+            callback_group=cb_group,
         )
         #20260626 JH, RobotStatus log 추가
         self.publish_status(RobotStatus.STATUS_IDLE, detail="robot_task_manager_node ready", log="robot_task_manager_node ready")
@@ -182,17 +193,36 @@ class RobotTaskManagerNode(Node):
     # 정지 요청은 abort가 아니라 "그 자리에서 일시정지"임 - stop_event가 풀릴 때까지
     # 여기서 대기하다가, 풀리면 호출한 쪽의 바로 다음 줄부터 그대로 이어서 진행한다.
     # 단, 노드가 셧다운되는 중이면 영원히 블락되면 안 되니 그 경우만 진짜로 abort.
+    def _on_force_detected(self, msg):
+        if msg.data:
+            self.force_event.set()
+            # main_decision_node 왕복(토픽→stop_task 서비스)을 기다리지 않고 즉시 정지.
+            # 이 순서로 set 해두면 movel() 응답이 돌아오는 시점에 stop_event가
+            # 이미 세워져 있어서 move()가 "성공"으로 통과하는 경쟁 상태를 막는다.
+            self.stop_event.set()
+        else:
+            self.force_event.clear()
+            # stop_event는 여기서 풀지 않음: handle_stop_task(stop=False)만 재개시킴
+
     def _check_stop(self):
         if not self.stop_event.is_set():
             return
-        #20260626 JH, RobotStatus log 추가
-        log_msg = ("Task paused - waiting for stop to clear")
-        self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume", log=log_msg)
+        # force_event가 먼저 해소되더라도 Start(stop=False)가 올 때까지는
+        # STATUS_FORCE_STOP으로 유지 (_force_was_cause sticky flag).
+        if self.force_event.is_set():
+            self._force_was_cause = True
+        if self._force_was_cause:
+            log_msg = "Task paused - external force detected, operator intervention required"
+            self.publish_status(RobotStatus.STATUS_FORCE_STOP, detail="외력 감지 - 담당자 확인 후 START", log=log_msg)
+        else:
+            log_msg = "Task paused - waiting for stop to clear"
+            self.publish_status(RobotStatus.STATUS_EMERGENCY_STOP, detail="Paused - waiting to resume", log=log_msg)
         self.get_logger().warn(log_msg)
         while self.stop_event.is_set():
             if not rclpy.ok():
                 raise TaskAborted()
             time.sleep(0.1)
+        self._force_was_cause = False
         self.get_logger().warn("Task resumed")
 
     # 260625 준형, MoveToPose.srv에서 current_ratio 필드 제거에 맞춰 호출부도 정리
@@ -535,6 +565,8 @@ class RobotTaskManagerNode(Node):
         else:
             self.stop_event.clear()
             self.emergency_event.clear()
+            self.force_event.clear()
+            self._force_was_cause = False
             response.success = True
             response.message = "Resume requested; any paused task will continue"
             self.get_logger().warn("Resume requested")

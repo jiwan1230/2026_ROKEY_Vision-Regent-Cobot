@@ -18,8 +18,9 @@ import numpy as np
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
+from std_msgs.msg import Bool, Float64
 from std_srvs.srv import Trigger
-from dsr_msgs2.srv import MoveStop
+from dsr_msgs2.srv import MoveStop, GetExternalTorque
 from interfaces.srv import MoveToPose, AddTcp, SetTcp
 from robot_control_pkg.poses import all_pose_names
 
@@ -123,12 +124,19 @@ class DoosanRobotControlNode(Node):
         self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
         self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
+        # 외력 감지 상태 (히스테리시스용)
+        self._force_detected = False
+        # 이전 GetExternalTorque 비동기 요청이 아직 처리 중이면 True (중첩 요청 방지)
+        self._force_pending = False
+
         #나중에 HMI에서 받아오게 바꿔야 함
         self.declare_parameter("m_velocity", 60.0)
         self.declare_parameter("m_acceleration", 60.0)
         self.declare_parameter("d_velocity", 30.0)
         self.declare_parameter("d_acceleration", 30.0)
         self.declare_parameter("move_duration_sec", 0.4)
+        # 외력 감지 임계값 (Nm) - 6개 관절 외력 토크의 벡터 크기 √(T1²+…+T6²)가 이 값을 초과하면 감지
+        self.declare_parameter("force_threshold", 20.0)
 
         self.move_duration_sec = float(self.get_parameter("move_duration_sec").value)
 
@@ -141,6 +149,21 @@ class DoosanRobotControlNode(Node):
         self.current_pose_name = "home_pose"
 
         self.move_stop_client = dsr_stop_node.create_client(MoveStop, "motion/move_stop")
+        # GetExternalTorque도 dsr_stop_node에 두어야 함: movel() 진행 중 dsr_node가
+        # 블락돼도 이 클라이언트는 독립적으로 서비스를 호출할 수 있음.
+        self.get_torque_client = dsr_stop_node.create_client(
+            GetExternalTorque, "aux_control/get_external_torque"
+        )
+
+        self.force_detected_pub = self.create_publisher(Bool, "/robot/force_detected", 10)
+        # threshold 튜닝용: 매 polling마다 현재 벡터 크기를 발행
+        # ros2 topic echo /robot/torque_norm 으로 실시간 확인 가능
+        self.torque_norm_pub = self.create_publisher(Float64, "/robot/torque_norm", 10)
+        # 타이머에 전용 ReentrantCallbackGroup 부여: handle_move_to_pose(기본 그룹)가
+        # movel()로 블락돼있는 동안에도 타이머가 실행될 수 있어야 함.
+        _force_cb_group = ReentrantCallbackGroup()
+        self.create_timer(0.2, self._check_external_force, callback_group=_force_cb_group)
+
         #20260625 JH, AddTCP, SetTCP 서비스 추가
         self.create_service(AddTcp, "/robot/add_tcp", self.handle_add_tcp)
         self.create_service(SetTcp, "/robot/set_tcp", self.handle_set_tcp)
@@ -262,6 +285,47 @@ class DoosanRobotControlNode(Node):
             self.get_logger().warn(f"motion/move_stop -> success={result.success}")
         except Exception as e:
             self.get_logger().error(f"motion/move_stop call failed: {e}")
+
+    def _check_external_force(self):
+        # 이전 요청이 아직 처리 중이면 건너뜀 (중첩 요청 방지)
+        if self._force_pending:
+            return
+        if not self.get_torque_client.service_is_ready():
+            return
+        self._force_pending = True
+        threshold = float(self.get_parameter("force_threshold").value)
+        future = self.get_torque_client.call_async(GetExternalTorque.Request())
+        future.add_done_callback(lambda f: self._on_torque_result(f, threshold))
+
+    def _on_torque_result(self, future, threshold):
+        self._force_pending = False
+        try:
+            result = future.result()
+            if not result.success:
+                return
+            # 벡터 크기로 어느 방향 외력이든 동일하게 감지.
+            # max()는 힘이 여러 관절에 분산될 때 각각이 threshold 미달로 통과될 수 있음.
+            torque_norm = math.sqrt(sum(t ** 2 for t in result.ext_torque))
+            exceeded = torque_norm > threshold
+
+            if exceeded != self._force_detected:
+                self._force_detected = exceeded
+                if exceeded:
+                    self.get_logger().warn(
+                        f"External force detected: torque norm={torque_norm:.1f} Nm (threshold={threshold})"
+                    )
+                    # 즉시 모션 정지
+                    if self.move_stop_client.service_is_ready():
+                        self.move_stop_client.call_async(MoveStop.Request(stop_mode=DR_HOLD))
+                else:
+                    self.get_logger().info("External force cleared")
+            # level-triggered: 상태가 바뀌지 않아도 매 polling마다 발행해서
+            # 구독자 캐시가 잘못 초기화돼도 200ms 이내에 자동 정정되게 함.
+            self.force_detected_pub.publish(Bool(data=self._force_detected))
+            # 튜닝용: 현재 토크 벡터 크기를 항상 발행 (threshold 결정 후 제거 가능)
+            self.torque_norm_pub.publish(Float64(data=torque_norm))
+        except Exception as e:
+            self.get_logger().debug(f"Force check failed: {e}")
 #end
 
 def main():

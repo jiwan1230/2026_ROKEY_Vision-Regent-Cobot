@@ -28,6 +28,7 @@ class MainDecisionNode(Node):
         self.busy = False
         self.camera_ok = True
         self.hand_detected = False
+        self.force_detected = False
         self.tray_transferred = False
         # 손 감지 시 자동 비상정지 반응의 런타임 on/off. 끄더라도 hand_detected
         # 구독/표시는 계속 갱신되고, stop_task 호출과 task 보류만 건너뜀.
@@ -43,6 +44,7 @@ class MainDecisionNode(Node):
         self.create_subscription(TubeState, "/vision/tube_state", self.on_tube_state, 10)
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
+        self.create_subscription(Bool, "/robot/force_detected", self.on_force_detected, 10)
 
         # HMI 등 다른 클라이언트가 토글하고 현재 상태를 구독할 수 있게 노출
         self.hand_safety_enabled_pub = self.create_publisher(
@@ -84,6 +86,8 @@ class MainDecisionNode(Node):
         if self.system_running:
             # Start는 자동 루프를 켜는 것과 동시에, 멈춰서 대기 중인 작업이 있다면
             # 그것도 같이 재개시킨다 (stop_event.clear()).
+            # 외력 감지 상태도 Start로 해제 (담당자가 확인하고 눌렀다고 간주).
+            self.force_detected = False
             self.stop_task_client.call_async(StopTask.Request(stop=False))
         response.success = True
         response.message = f"system_running set to {self.system_running}"
@@ -92,6 +96,14 @@ class MainDecisionNode(Node):
 
     def on_camera_status(self, msg: Bool):
         self.camera_ok = msg.data
+
+    def on_force_detected(self, msg: Bool):
+        was_detected = self.force_detected
+        self.force_detected = msg.data
+        if msg.data and not was_detected and self.busy:
+            self.get_logger().warn("External force detected - stopping robot, operator intervention required")
+            self.stop_task_client.call_async(StopTask.Request(stop=True, is_emergency=False))
+        # 손 감지와 달리: 외력이 해소돼도 자동 resume 안 함 (담당자가 Start 눌러야 함)
 
     def on_hand_detected(self, msg: Bool):
         was_detected = self.hand_detected
@@ -115,6 +127,9 @@ class MainDecisionNode(Node):
             return
         if self.hand_detected and self.hand_safety_enabled:
             self.get_logger().warn("Hand detected in work area - robot motion withheld")
+            return
+        if self.force_detected:
+            self.get_logger().warn("External force active - robot motion withheld until START pressed")
             return
         if TubeState.STATE_UNKNOWN in msg.state:
             self.get_logger().warn(f"Unknown tube state present {list(msg.state)} - withholding task")
