@@ -55,6 +55,7 @@
 import sys
 import os
 import threading
+import collections
 from datetime import datetime
 import numpy as np
 import cv2
@@ -211,7 +212,7 @@ class IntegratedHMINode(Node):
         # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
         # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
         # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
-        self.vision_log_messages = []
+        self.vision_log_messages = collections.deque()
 
         self.declare_parameter('velocity', 60.0)
         self.declare_parameter('acceleration', 60.0)
@@ -268,6 +269,8 @@ class IntegratedHMINode(Node):
             GetParameters, '/tube_state_publisher_node/get_parameters')
         self.set_param_tube_state_client = self.create_client(
             SetParameters, '/tube_state_publisher_node/set_parameters')
+
+        self.set_hand_safety_client = self.create_client(SetBool, "/robot/set_hand_safety_enabled")
 
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
@@ -384,7 +387,8 @@ class HMIDashboardApp(QDialog):
     _detector_params_ready        = pyqtSignal(object, object)  # (names, pvalues)
     _tube_state_params_ready      = pyqtSignal(object, object)  # (names, pvalues)
     _detector_buffer_params_ready = pyqtSignal(object, object)  # 2026-06-27 soo: 버퍼 파라미터
-    _apply_complete_signal   = pyqtSignal(bool, str)       # (success, message)
+    _apply_complete_signal        = pyqtSignal(bool, str)       # (success, message)
+    _update_feature_btn_signal   = pyqtSignal(object, bool)    # (btn, on) — 서비스 실패 시 롤백용
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -398,9 +402,10 @@ class HMIDashboardApp(QDialog):
         self._tube_state_params_ready.connect(self._apply_tube_state_params)       # 2026-06-27 soo
         self._detector_buffer_params_ready.connect(self._apply_detector_buffer_params)  # 2026-06-27 soo
         self._apply_complete_signal.connect(self._on_apply_complete)
+        self._update_feature_btn_signal.connect(self._update_feature_btn)
         self.yolo_enabled = False
         self._grip_fail_shown = False
-        self._vision_log_seen = 0
+        self._vision_log_seen = 0  # deque 방식으로 대체됨 — 하위 호환용 유지
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
 
@@ -628,13 +633,12 @@ class HMIDashboardApp(QDialog):
             self.log("⚠ 그립 실패 감지됨")
 
     def _update_vision_log(self):
-        messages = self.node.vision_log_messages
-        if self._vision_log_seen >= len(messages):
+        if not self.node.vision_log_messages:
             return
         ts = datetime.now().strftime("%H:%M:%S")
-        for text in messages[self._vision_log_seen:]:
+        while self.node.vision_log_messages:
+            text = self.node.vision_log_messages.popleft()
             self.textEdit_vision_log.append(f"[{ts}] {text}")
-        self._vision_log_seen = len(messages)
 
     # -----------------------------------------------------------------
     # 화면 실시간 폴링 (150ms)
@@ -1157,88 +1161,40 @@ class HMIDashboardApp(QDialog):
         grid.setSpacing(10)
         grp.setLayout(grid)
 
-        features = [
-            ("카메라 스트리밍", self._on_toggle_camera),
-            ("YOLO 추론",       self._on_toggle_yolo),
-            ("높이 감지",       self._on_toggle_height),
-            ("손 감지 안전",    self._on_toggle_hand),
-        ]
-        self.btn_feat_camera = None
-        self.btn_feat_yolo   = None
-        self.btn_feat_height = None
-        self.btn_feat_hand   = None
-        btn_refs = ['btn_feat_camera', 'btn_feat_yolo', 'btn_feat_height', 'btn_feat_hand']
+        self.btn_feat_hand = QPushButton("ON")
+        self.btn_feat_hand.setCheckable(True)
+        self.btn_feat_hand.setChecked(True)
+        self.btn_feat_hand.setStyleSheet(self._BTN_ON)
+        self.btn_feat_hand.clicked.connect(self._on_toggle_hand)
 
-        for i, (label, callback) in enumerate(features):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("font-weight: bold;")
-            btn = QPushButton("ON")
-            btn.setCheckable(True)
-            btn.setChecked(True)
-            btn.setStyleSheet(self._BTN_ON)
-            btn.clicked.connect(callback)
-            setattr(self, btn_refs[i], btn)
-            row, col = divmod(i, 2)
-            grid.addWidget(lbl, row, col * 2)
-            grid.addWidget(btn, row, col * 2 + 1)
+        lbl = QLabel("손 감지 안전")
+        lbl.setStyleSheet("font-weight: bold;")
+        grid.addWidget(lbl, 0, 0)
+        grid.addWidget(self.btn_feat_hand, 0, 1)
 
         self.vl_motion_vision.insertWidget(0, grp)
-
-    def _toggle_bool_param(self, client, call_fn, param_name, enabled, btn):
-        def run():
-            pval = ParameterValue()
-            pval.type = ParameterType.PARAMETER_BOOL
-            pval.bool_value = enabled
-            p = Parameter()
-            p.name = param_name
-            p.value = pval
-            if client.wait_for_service(timeout_sec=3.0):
-                done_ev = threading.Event()
-                fut = call_fn([p])
-                def on_done(f):
-                    try:
-                        result = f.result()
-                        failed = [r for r in result.results if not r.successful]
-                        if failed:
-                            self.log_signal.emit(f"[{param_name}] 설정 실패: {failed[0].reason}")
-                    except Exception as e:
-                        self.log_signal.emit(f"[{param_name}] 오류: {e}")
-                    finally:
-                        done_ev.set()
-                fut.add_done_callback(on_done)
-                done_ev.wait(timeout=5.0)
-            else:
-                self.log_signal.emit(f"[경고] 서비스 미응답 — {param_name} 설정 실패")
-        threading.Thread(target=run, daemon=True).start()
-
-    def _on_toggle_camera(self, checked):
-        self._update_feature_btn(self.btn_feat_camera, checked)
-        self.log(f"카메라 스트리밍: {'ON' if checked else 'OFF'}")
-        self._toggle_bool_param(
-            self.node.set_param_camera_client,
-            self.node.call_set_param_camera,
-            'streaming_enabled', checked, self.btn_feat_camera)
-
-    def _on_toggle_yolo(self, checked):
-        self._update_feature_btn(self.btn_feat_yolo, checked)
-        self.node.publish_yolo_enabled(checked)
-        self.log(f"YOLO 추론: {'ON' if checked else 'OFF'}")
-
-    def _on_toggle_height(self, checked):
-        self._update_feature_btn(self.btn_feat_height, checked)
-        self.log(f"높이 감지: {'ON' if checked else 'OFF'}")
-        self._toggle_bool_param(
-            self.node.set_param_detector_client,
-            self.node.call_set_param_detector,
-            'height_publish_enabled', checked, self.btn_feat_height)
 
     def _on_toggle_hand(self, checked):
         self._update_feature_btn(self.btn_feat_hand, checked)
         self.log(f"손 감지 안전: {'ON' if checked else 'OFF'}")
-        self._toggle_bool_param(
-            self.node.set_param_detector_client,
-            self.node.call_set_param_detector,
-            'hand_safety_enabled', checked, self.btn_feat_hand)
+        def run():
+            client = self.node.set_hand_safety_client
+            if client.wait_for_service(timeout_sec=3.0):
+                fut = client.call_async(SetBool.Request(data=checked))
+                def on_done(f):
+                    try:
+                        result = f.result()
+                        if not result.success:
+                            self.log_signal.emit(f"[손 감지 안전] 설정 실패: {result.message}")
+                            self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+                    except Exception as e:
+                        self.log_signal.emit(f"[손 감지 안전] 오류: {e}")
+                        self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+                fut.add_done_callback(on_done)
+            else:
+                self.log_signal.emit("[경고] /robot/set_hand_safety_enabled 서비스 미응답")
+                self._update_feature_btn_signal.emit(self.btn_feat_hand, not checked)
+        threading.Thread(target=run, daemon=True).start()
 
     # -----------------------------------------------------------------
     # 비전 파라미터 UI 셋업 — 바운딩박스/높이 신뢰도 두 항목
@@ -1308,7 +1264,7 @@ class HMIDashboardApp(QDialog):
     def _load_vision_params(self):
         # 2026-06-27 soo: side_camera_node FPS 로드
         if self.node.get_param_camera_client.service_is_ready():
-            cam_names = ['publish_rate_hz', 'streaming_enabled']
+            cam_names = ['publish_rate_hz']
             fut = self.node.call_get_param_camera(cam_names)
             fut.add_done_callback(
                 lambda f: self._on_camera_params_loaded(f, cam_names))
@@ -1316,7 +1272,7 @@ class HMIDashboardApp(QDialog):
             self.log("[경고] side_camera_node 파라미터 서비스 미준비 — FPS 초기값 로드 생략")
 
         if self.node.get_param_detector_client.service_is_ready():
-            det_names = ['confidence_threshold', 'model_path', 'hand_safety_enabled', 'height_publish_enabled']
+            det_names = ['confidence_threshold', 'model_path']
             fut = self.node.call_get_param_detector(det_names)
             fut.add_done_callback(
                 lambda f: self._on_detector_params_loaded(f, det_names))
@@ -1359,11 +1315,7 @@ class HMIDashboardApp(QDialog):
                 rb = self._model_radio_map.get(pval.string_value)
                 if rb:
                     rb.setChecked(True)
-            elif name == 'hand_safety_enabled' and pval.type == ParameterType.PARAMETER_BOOL:  # 2026-06-27 soo
-                self._update_feature_btn(self.btn_feat_hand, pval.bool_value)
-            elif name == 'height_publish_enabled' and pval.type == ParameterType.PARAMETER_BOOL:  # 2026-06-27 soo
-                self._update_feature_btn(self.btn_feat_height, pval.bool_value)
-        self.log("[비전 파라미터] confidence / 모델 / 기능 상태 로드 완료")
+        self.log("[비전 파라미터] confidence / 모델 로드 완료")
 
     def _on_tube_state_params_loaded(self, future, names):
         try:
@@ -1389,13 +1341,10 @@ class HMIDashboardApp(QDialog):
         self._camera_params_ready.emit(names, list(result.values))
 
     def _apply_camera_params(self, names, pvalues):
-        # 2026-06-27 soo
         for name, pval in zip(names, pvalues):
             if name == 'publish_rate_hz' and pval.type == ParameterType.PARAMETER_DOUBLE:
                 self.spin_vision_fps.setValue(pval.double_value)
-            elif name == 'streaming_enabled' and pval.type == ParameterType.PARAMETER_BOOL:
-                self._update_feature_btn(self.btn_feat_camera, pval.bool_value)
-        self.log("[비전 파라미터] FPS / 카메라 상태 로드 완료")
+        self.log("[비전 파라미터] FPS 로드 완료")
 
     def _on_detector_roi_params_loaded(self, future, names):
         # 2026-06-27 soo
