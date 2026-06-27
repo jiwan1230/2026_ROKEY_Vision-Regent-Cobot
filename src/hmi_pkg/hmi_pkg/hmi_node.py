@@ -29,6 +29,12 @@
 #                   - TCP Mode: X/Y/Z(mm) · A/B/C(deg) 위치 조그
 #                   - JOG Speed 슬라이더(1~100%), STOP 버튼
 #                   - 메인 QTabWidget 이름 tabWidget → JOG 변경에 따른 참조 수정
+#
+# 2026-06-27  soo  로봇 파라미터 적용 안전성 개선
+#                   - 파라미터 범위 검증 추가 (_validate_params): 범위 초과 시 적용 차단
+#                   - 적용 완료/실패 팝업 추가 (_on_apply_complete): 서비스 응답 대기 후 표시
+#                   - _apply_params_thread에 threading.Event 도입 — 서비스 응답 후 팝업 발행
+#                   - _DOOSAN_SCALAR_RANGES / _TASK_SCALAR_RANGES 상수 추가
 # =============================================================================
 
 import sys
@@ -135,6 +141,23 @@ _TASK_SCALAR = [
 # 자동 재계산 대상 포즈 타입
 _REFILL_POSE_TYPES  = ('approach_pose', 'work_pose', 'pour_pose')
 _DISPOSE_POSE_TYPES = ('approach_pose', 'grip_pose')
+
+# 파라미터 허용 범위 (min, max)
+_DOOSAN_SCALAR_RANGES = {
+    'm_velocity':        (1.0,  100.0),
+    'm_acceleration':    (1.0,  100.0),
+    'd_velocity':        (1.0,  100.0),
+    'd_acceleration':    (1.0,  100.0),
+    'move_duration_sec': (0.05, 10.0),
+}
+_TASK_SCALAR_RANGES = {
+    'grip_retry_count':         (0,    20),
+    'recheck_timeout_sec':      (0.5,  300.0),
+    'service_call_timeout_sec': (1.0,  600.0),
+    'max_pour_attempts':        (1,    100),
+    'normal_confirm_count':     (1,    50),
+    'num_trays':                (1,    5),
+}
 
 
 # 2026-06-24 soo: CompressedImage(JPEG) → bgr8 numpy 변환
@@ -292,9 +315,10 @@ class HMIDashboardApp(QDialog):
     # thread, not the Qt GUI thread - touching QTextEdit from there directly
     # (the old self.log() call) crashes Qt. Routing through a signal lets Qt
     # marshal the string-only payload onto the GUI thread safely.
-    log_signal           = pyqtSignal(str)
-    _doosan_params_ready = pyqtSignal(object, object)  # (names, pvalues)
-    _task_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
+    log_signal             = pyqtSignal(str)
+    _doosan_params_ready   = pyqtSignal(object, object)  # (names, pvalues)
+    _task_params_ready     = pyqtSignal(object, object)  # (names, pvalues)
+    _apply_complete_signal = pyqtSignal(bool, str)       # (success, message)
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -302,6 +326,7 @@ class HMIDashboardApp(QDialog):
         self.log_signal.connect(self.log)
         self._doosan_params_ready.connect(self._apply_doosan_params)
         self._task_params_ready.connect(self._apply_task_params)
+        self._apply_complete_signal.connect(self._on_apply_complete)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
@@ -923,9 +948,50 @@ class HMIDashboardApp(QDialog):
                     write_pose(f'dispose_tray_{t}_tube_{u}_{pt}', derived)
 
     # -----------------------------------------------------------------
+    # 파라미터 범위 검증 — 오류 메시지 리스트 반환 (빈 리스트 = OK)
+    # -----------------------------------------------------------------
+    def _validate_params(self):
+        errors = []
+        for name, (lo, hi) in _DOOSAN_SCALAR_RANGES.items():
+            txt = self._scalar_edits['doosan'][name].text()
+            try:
+                val = float(txt)
+                if not (lo <= val <= hi):
+                    errors.append(f"{name}: {val}  (허용 {lo} ~ {hi})")
+            except ValueError:
+                errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
+        for name, (lo, hi) in _TASK_SCALAR_RANGES.items():
+            txt = self._scalar_edits['task'][name].text()
+            try:
+                val = float(txt)
+                if not (lo <= val <= hi):
+                    errors.append(f"{name}: {val}  (허용 {lo} ~ {hi})")
+            except ValueError:
+                errors.append(f"{name}: '{txt}' — 숫자가 아닙니다")
+        return errors
+
+    # -----------------------------------------------------------------
+    # Apply 완료 팝업 슬롯 (GUI 스레드에서 실행)
+    # -----------------------------------------------------------------
+    def _on_apply_complete(self, success, message):
+        if success:
+            QMessageBox.information(self, "파라미터 적용 완료", message)
+        else:
+            QMessageBox.warning(self, "파라미터 적용 실패",
+                                f"일부 파라미터 적용에 실패했습니다:\n\n{message}")
+
+    # -----------------------------------------------------------------
     # Apply 버튼 콜백 — 파라미터 빌드 후 백그라운드 스레드에서 서비스 호출
     # -----------------------------------------------------------------
     def on_apply_robot_param(self):
+        errors = self._validate_params()
+        if errors:
+            QMessageBox.warning(
+                self, "파라미터 검증 실패",
+                "다음 항목의 값을 확인해주세요:\n\n" + "\n".join(f"• {e}" for e in errors)
+            )
+            return
+
         def make_param(name, ptype, text):
             pval = ParameterValue()
             if ptype == float:
@@ -985,38 +1051,65 @@ class HMIDashboardApp(QDialog):
         ).start()
 
     def _apply_params_thread(self, doosan_params, task_params):
+        all_errors = []
+        total_applied = 0
+
+        def call_and_wait(client, call_fn, params, node_name):
+            nonlocal total_applied
+            done_ev = threading.Event()
+            fut = call_fn(params)
+
+            def on_done(f):
+                nonlocal total_applied
+                try:
+                    result = f.result()
+                    failed = [r for r in result.results if not r.successful]
+                    if failed:
+                        for r in failed:
+                            all_errors.append(f"[{node_name}] {r.reason}")
+                            self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
+                    else:
+                        total_applied += len(result.results)
+                        self.log_signal.emit(
+                            f"[{node_name}] 파라미터 {len(result.results)}개 전체 적용 완료")
+                except Exception as e:
+                    all_errors.append(f"[{node_name}] 오류: {e}")
+                    self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+                finally:
+                    done_ev.set()
+
+            fut.add_done_callback(on_done)
+            done_ev.wait(timeout=10.0)
+
         if doosan_params:
             if self.node.set_param_doosan_client.wait_for_service(timeout_sec=3.0):
-                fut = self.node.call_set_param_doosan(doosan_params)
-                fut.add_done_callback(
-                    lambda f: self._log_set_param_result('doosan', f))
+                call_and_wait(
+                    self.node.set_param_doosan_client,
+                    self.node.call_set_param_doosan,
+                    doosan_params, 'doosan')
             else:
+                all_errors.append("[doosan] 서비스 미응답 — doosan_robot_control_node 실행 확인")
                 self.log_signal.emit(
                     "[경고] doosan SetParameters 서비스 응답 없음 — "
                     "doosan_robot_control_node 실행 중인지 확인하세요")
 
         if task_params:
             if self.node.set_param_task_client.wait_for_service(timeout_sec=3.0):
-                fut = self.node.call_set_param_task(task_params)
-                fut.add_done_callback(
-                    lambda f: self._log_set_param_result('task_manager', f))
+                call_and_wait(
+                    self.node.set_param_task_client,
+                    self.node.call_set_param_task,
+                    task_params, 'task_manager')
             else:
+                all_errors.append("[task_manager] 서비스 미응답 — robot_task_manager_node 실행 확인")
                 self.log_signal.emit(
                     "[경고] task_manager SetParameters 서비스 응답 없음 — "
                     "robot_task_manager_node 실행 중인지 확인하세요")
 
-    def _log_set_param_result(self, node_name, future):
-        try:
-            result = future.result()
-            failed = [r for r in result.results if not r.successful]
-            if failed:
-                for r in failed:
-                    self.log_signal.emit(f"[{node_name}] 설정 실패: {r.reason}")
-            else:
-                self.log_signal.emit(
-                    f"[{node_name}] 파라미터 {len(result.results)}개 전체 적용 완료")
-        except Exception as e:
-            self.log_signal.emit(f"[{node_name}] SetParameters 오류: {e}")
+        if all_errors:
+            self._apply_complete_signal.emit(False, "\n".join(all_errors))
+        else:
+            self._apply_complete_signal.emit(
+                True, f"파라미터 {total_applied}개 전체 적용 완료")
 
 
 def main(args=None):
