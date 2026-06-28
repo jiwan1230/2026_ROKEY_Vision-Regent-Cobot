@@ -72,16 +72,20 @@ from PyQt5.QtWidgets import (
     QApplication, QDialog, QMessageBox, QPushButton,
     QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
     QDoubleSpinBox, QSpinBox, QFormLayout, QRadioButton, QButtonGroup, QHBoxLayout,
+    QComboBox,
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
+
+# 2026-06-28 soo: 외관 테마는 qt_material 대신 커스텀 QSS(ui/clean_light.qss)로 적용.
+# (main()에서 app.setStyleSheet으로 로드 — 기능 로직과 무관한 스타일 전용)
 
 from std_srvs.srv import SetBool, Trigger
 from rcl_interfaces.srv import SetParameters, GetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from interfaces.msg import RobotStatus, TubeHeight, TubeState
-from interfaces.srv import RequestRecheck, StopTask
+from interfaces.srv import RequestRecheck, StopTask, MoveToPose
 
 STATE_LABELS = {
     TubeState.STATE_REFILL_NEEDED: "REFILL NEEDED",
@@ -283,6 +287,9 @@ class IntegratedHMINode(Node):
 
         self.set_hand_safety_client = self.create_client(SetBool, "/robot/set_hand_safety_enabled")
 
+        # 2026-06-28 soo: 관리자 '포즈 이동' 탭 — 선택 포즈로 movel
+        self.move_to_pose_client = self.create_client(MoveToPose, "/robot/move_to_pose")
+
         self.resolution_pub = self.create_publisher(String, "/camera/resolution_cmd", 10)
         self.yolo_enable_pub = self.create_publisher(Bool, "/vision/yolo_enabled", 10)
 
@@ -381,6 +388,13 @@ class IntegratedHMINode(Node):
         req.parameters = params
         return self.set_param_tube_state_client.call_async(req)
 
+    # 2026-06-28 soo: 선택 포즈로 이동 (move_type='move' → 노드가 movel 실행)
+    def call_move_to_pose(self, pose_name: str, move_type: str = 'move'):
+        req = MoveToPose.Request()
+        req.pose_name = pose_name
+        req.move_type = move_type
+        return self.move_to_pose_client.call_async(req)
+
 
 # =====================================================================
 # 2. PyQt 기반 UI 화면 클래스 (.ui 파일의 탭 구조를 그대로 사용)
@@ -403,6 +417,7 @@ class HMIDashboardApp(QDialog):
     _apply_complete_signal        = pyqtSignal(bool, str)       # (success, message)
     _update_feature_btn_signal    = pyqtSignal(object, bool)    # (btn, on) — 서비스 실패 시 롤백용
     _tcp_params_ready             = pyqtSignal(object)          # tcp_offset 6개 값
+    _pose_move_values_ready       = pyqtSignal(object)          # 선택 포즈 6개 좌표값
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -419,6 +434,7 @@ class HMIDashboardApp(QDialog):
         self._apply_complete_signal.connect(self._on_apply_complete)
         self._update_feature_btn_signal.connect(self._update_feature_btn)
         self._tcp_params_ready.connect(self._apply_tcp_params_to_ui)
+        self._pose_move_values_ready.connect(self._apply_pose_move_values)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
@@ -428,6 +444,8 @@ class HMIDashboardApp(QDialog):
         self._force_dialog = None
         # 2026-06-24 soo: 관리자 인증 상태 플래그 — 탭 전환 시 로그인 페이지 강제 표시에 사용
         self._admin_authenticated = False
+        # 2026-06-28 soo: 포즈 이동 명령 진행 중 플래그 (중복 호출 방지)
+        self._pose_move_in_flight = False
 
         package_share_directory = get_package_share_directory('hmi_pkg')
         ui_path = os.path.join(package_share_directory, 'ui', 'vision_camera_state.ui')
@@ -436,6 +454,11 @@ class HMIDashboardApp(QDialog):
             self.node.get_logger().error(f"UI 파일을 찾을 수 없습니다: {ui_path}")
 
         uic.loadUi(ui_path, self)  # 2026-06-24 soo: self.ui(QDialog) 래퍼 제거, 직접 로드
+
+        # 2026-06-28 Gemini(테마): 머티리얼 테마가 깔끔히 입혀지도록 .ui의 정적
+        # 인라인 스타일을 일괄 제거. 동적으로 색이 바뀌거나 안전상 색이 필요한
+        # 위젯(LED/튜브색/비상정지/경고배너 등)은 제외한다.
+        self._strip_inline_styles()
 
         # QPushButton의 autoDefault는 기본값이 True라서, 어느 탭/페이지에 있든 Enter가
         # 그 순간 보이는 버튼 하나를 임의로 클릭해버릴 수 있음 (예: 관리자 로그인 중
@@ -477,9 +500,13 @@ class HMIDashboardApp(QDialog):
         ]
 
         self._build_robot_param_ui()
+        # 2026-06-28 soo: 로봇파라미터 탭이 동적 생성하는 다크 입력칸도 머티리얼 테마를
+        # 따르도록 한 번 더 strip (Vision 토글 버튼 색은 이후 생성되므로 보존됨).
+        self._strip_inline_styles()
         self._setup_vision_feature_toggles()  # 2026-06-27 soo: Vision 기능 ON/OFF 토글
         self._setup_vision_conf_ui()          # 2026-06-27 soo: 비전 confidence UI 초기화
         self._setup_vision_buffer_ui()        # 2026-06-27 soo: 추론 버퍼 UI 초기화
+        self._setup_pose_move_tab()           # 2026-06-28 soo: 포즈 선택 이동 탭
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -488,6 +515,25 @@ class HMIDashboardApp(QDialog):
 
         #20260627 JH, log 중복 출력 방지용 임시 저장소 생성
         self._last_log = None
+
+    # 2026-06-28 Gemini(테마): .ui 인라인 스타일 일괄 제거 (머티리얼 테마 적용용).
+    # exclude_names = 동적 색상/안전 표시 등 인라인 스타일을 유지해야 하는 위젯.
+    # 비상정지(pushButton_4)·손감지 라벨 빨강은 이 strip 이후에 코드에서 다시
+    # 칠해지므로(또는 제외 목록에 포함) 안전 색상은 보존된다.
+    def _strip_inline_styles(self):
+        exclude_names = [
+            "videoLabel",             # 카메라 검은 배경 유지
+            "lbl_grip_fail_alert",    # 빨간 경고 배너
+            "tube0_color_box", "tube1_color_box", "tube2_color_box",  # 튜브 상태색
+            "lbl_led_stop", "lbl_led_run", "lbl_led_error",           # LED
+            "lbl_led_stop_text", "lbl_led_run_text", "lbl_led_error_text",
+            "pushButton_4",           # 비상정지 버튼(빨강)
+            "btn_yolo_toggle",        # YOLO 토글(동적 색)
+            "lbl_admin_login_status", # 로그인 에러 메시지
+        ]
+        for widget in self.findChildren(QWidget):
+            if widget.objectName() not in exclude_names:
+                widget.setStyleSheet("")
 
     # -----------------------------------------------------------------
     # 로그 출력
@@ -609,6 +655,8 @@ class HMIDashboardApp(QDialog):
             self._load_robot_params()
             self._load_vision_params()  # 2026-06-27 soo: 로그인 시 비전 파라미터 초기값 로드
             self._load_tcp_params()     # 2026-06-28 soo: 로그인 시 TCP offset 초기값 로드
+            # 2026-06-28 soo: 포즈 이동 탭의 선택 포즈 좌표를 노드 현재값으로 갱신
+            self._on_pose_move_selected(self.combo_pose_move.currentText())
         else:
             self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
             self.input_admin_pw.clear()
@@ -760,6 +808,8 @@ class HMIDashboardApp(QDialog):
 
         # 2026-06-28 soo: 로봇 정지(IDLE) 여부에 따라 TCP 설정 위젯 활성/비활성
         self._update_tcp_gate()
+        # 2026-06-28 soo: 포즈 이동 버튼도 정지(IDLE)일 때만 활성
+        self._update_pose_move_gate()
 
     # -----------------------------------------------------------------
     # 로봇 파라미터 탭 UI 동적 빌드
@@ -1903,6 +1953,125 @@ class HMIDashboardApp(QDialog):
         else:
             self._apply_complete_signal.emit(True, f"TCP 좌표 적용 완료: {vals}")
 
+    # =================================================================
+    # 2026-06-28 soo: 포즈 선택 이동 탭 (관리자 → 모션제어 → 🤖 포즈 이동)
+    #   - 콤보박스로 포즈 이름 선택 → 노드의 현재 좌표(poses.<name>)를 읽어 표시
+    #   - '이동' 버튼 → /robot/move_to_pose(name, 'move') → 노드가 movel 실행
+    #   - 안전: 정지(IDLE)일 때만 이동 / 확인 팝업 / 이동 중 버튼 비활성
+    #   - doosan 노드·기존 기능 무수정, HMI에 추가만
+    # =================================================================
+    def _setup_pose_move_tab(self):
+        tab = QWidget()
+        v = QVBoxLayout(tab)
+
+        grp = QGroupBox("포즈 선택 이동 (movel)")
+        form = QFormLayout(grp)
+
+        self.combo_pose_move = QComboBox()
+        self.combo_pose_move.addItems(_all_pose_names(num_tubes=3, num_trays=3))
+        form.addRow("포즈 이름", self.combo_pose_move)
+
+        # 좌표 표시 6칸 (읽기 전용 — 편집은 로봇 파라미터 탭이 담당)
+        self.pose_move_displays = []
+        for lab in ['X (mm)', 'Y (mm)', 'Z (mm)', 'RX (°)', 'RY (°)', 'RZ (°)']:
+            e = QLineEdit("0.000")
+            e.setReadOnly(True)
+            form.addRow(lab, e)
+            self.pose_move_displays.append(e)
+
+        v.addWidget(grp)
+
+        self.btn_pose_move = QPushButton("➡ 선택 포즈로 이동 (movel)")
+        self.btn_pose_move.setAutoDefault(False)
+        self.btn_pose_move.setDefault(False)
+        self.btn_pose_move.clicked.connect(self._on_pose_move_clicked)
+        v.addWidget(self.btn_pose_move)
+
+        note = QLabel("⚠ 로봇이 정지(IDLE) 상태일 때만 이동 가능. 이동 시 실물 로봇이 movel로 움직입니다.")
+        note.setWordWrap(True)
+        v.addWidget(note)
+        v.addStretch()
+
+        self.tabWidget_motion.addTab(tab, "🤖 포즈 이동")
+        self.combo_pose_move.currentTextChanged.connect(self._on_pose_move_selected)
+        if self.combo_pose_move.count() > 0:
+            self._on_pose_move_selected(self.combo_pose_move.currentText())
+
+    def _on_pose_move_selected(self, name):
+        if not name:
+            return
+        # 노드의 현재 poses.<name> 값을 읽어 표시 (이동도 노드의 이 값으로 movel).
+        if self.node.get_param_doosan_client.service_is_ready():
+            fut = self.node.call_get_param_doosan([f'poses.{name}'])
+            fut.add_done_callback(self._on_pose_move_params_loaded)
+        elif name in self._pose_edits:
+            # 노드 미가동 시: 로봇파라미터 탭에 떠있는 값(yaml 로드값)으로 표시
+            try:
+                self._apply_pose_move_values([float(e.text()) for e in self._pose_edits[name]])
+            except ValueError:
+                pass
+
+    def _on_pose_move_params_loaded(self, future):
+        # ROS 스핀 스레드 — 시그널로 GUI 스레드에 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[포즈이동] GetParameters 오류: {e}")
+            return
+        if result.values and result.values[0].type == ParameterType.PARAMETER_DOUBLE_ARRAY:
+            self._pose_move_values_ready.emit(list(result.values[0].double_array_value))
+
+    def _apply_pose_move_values(self, vals):
+        for e, val in zip(self.pose_move_displays, vals[:6]):
+            e.setText(f"{val:.3f}")
+
+    def _update_pose_move_gate(self):
+        # 정지(IDLE) + 이동 명령 진행 중 아님 일 때만 활성 (TCP와 동일한 idle 판정 재사용)
+        allowed = self._is_robot_idle_for_tcp() and not self._pose_move_in_flight
+        self.btn_pose_move.setEnabled(allowed)
+        if self._pose_move_in_flight:
+            self.btn_pose_move.setText("⏳ 이동 중...")
+        elif allowed:
+            self.btn_pose_move.setText("➡ 선택 포즈로 이동 (movel)")
+        else:
+            self.btn_pose_move.setText("⛔ 로봇 동작 중 — 정지(IDLE) 시 이동 가능")
+
+    def _on_pose_move_clicked(self):
+        if not self._is_robot_idle_for_tcp():
+            QMessageBox.warning(
+                self, "이동 불가",
+                "로봇이 정지(IDLE) 상태일 때만 이동할 수 있습니다.\n"
+                "Stop으로 자동 운전을 끄고 로봇이 멈춘 뒤 다시 시도하세요.")
+            return
+        name = self.combo_pose_move.currentText()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self, "포즈 이동 확인",
+            f"로봇을 다음 포즈로 이동합니다 (movel):\n\n    {name}\n\n계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        if not self.node.move_to_pose_client.service_is_ready():
+            QMessageBox.warning(
+                self, "이동 불가",
+                "/robot/move_to_pose 서비스 미응답 — doosan_robot_control_node 실행 확인")
+            return
+        self._pose_move_in_flight = True
+        self.btn_pose_move.setEnabled(False)
+        self.log(f"포즈 이동 요청: {name} (movel)")
+        fut = self.node.call_move_to_pose(name, 'move')
+        fut.add_done_callback(self._on_pose_move_done)
+
+    def _on_pose_move_done(self, future):
+        # ROS 스핀 스레드 — 플래그만 풀고 결과는 시그널로 로그 (게이트가 150ms 폴링으로 재활성)
+        self._pose_move_in_flight = False
+        try:
+            result = future.result()
+            self.log_signal.emit(f"포즈 이동 결과: success={result.success} msg={result.message}")
+        except Exception as e:
+            self.log_signal.emit(f"포즈 이동 오류: {e}")
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -1912,6 +2081,17 @@ def main(args=None):
     spin_thread.start()
 
     app = QApplication(sys.argv)
+
+    # 2026-06-28 soo: 커스텀 QSS(라이트) 적용 — ui/clean_light.qss 파일에서 로드.
+    # 색/여백 변경은 그 .qss 파일만 수정하면 됨 (Python 변경 불필요).
+    # 로드 실패해도 HMI는 기본 스타일로 정상 기동.
+    qss_path = os.path.join(get_package_share_directory('hmi_pkg'), 'ui', 'clean_light.qss')
+    try:
+        with open(qss_path, 'r') as f:
+            app.setStyleSheet(f.read())
+    except Exception as e:
+        node.get_logger().warn(f"QSS 스타일시트 로드 실패: {e}")
+
     window = HMIDashboardApp(node)
     window.show()
 

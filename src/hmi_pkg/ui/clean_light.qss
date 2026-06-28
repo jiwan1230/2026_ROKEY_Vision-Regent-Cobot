@@ -1,0 +1,85 @@
+/* =============================================================================
+ * clean_light.qss — HMI 라이트 테마 (커스텀 QSS)
+ * 2026-06-28: qt_material 대체. 색/여백 수정은 이 파일만 고치면 됨.
+ * 주의: LED/튜브색/비상정지 빨강 등 동적 색상 위젯은 코드에서 개별 setStyleSheet로
+ *       오버라이드되므로 이 전역 QSS 위에서도 그대로 유지된다.
+ * ========================================================================== */
+
+/* 1. 전체 배경 및 기본 글꼴 (맑고 깨끗한 느낌) */
+QWidget {
+    background-color: #f8f9fa; /* 아주 연한 회색 배경 */
+    color: #1e293b; /* 너무 진하지 않은 부드러운 검은색 */
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+    font-size: 14px;
+}
+
+/* 2. 그룹 박스 (흰색 카드 형태) */
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0; /* 아주 연한 회색 테두리 */
+    border-radius: 8px; /* 둥근 모서리 */
+    margin-top: 24px;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 10px;
+    left: 10px;
+    color: #475569;
+}
+
+/* 3. 일반 버튼 (플랫하고 모던한 스타일) */
+QPushButton {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background-color: #f1f5f9; /* 마우스 올렸을 때 살짝 어두워짐 */
+    border: 1px solid #94a3b8;
+}
+QPushButton:pressed {
+    background-color: #e2e8f0;
+}
+
+/* 4. 텍스트 입력창 및 스핀박스 */
+QLineEdit, QDoubleSpinBox, QSpinBox {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: #0f172a;
+}
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {
+    border: 2px solid #3b82f6; /* 클릭 시 선명한 파란색 테두리 (포인트) */
+    outline: none;
+}
+
+/* 5. 탭 메뉴 */
+QTabWidget::pane {
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    border-radius: 8px;
+}
+QTabBar::tab {
+    background: #f8f9fa;
+    color: #64748b;
+    padding: 10px 24px;
+    border: 1px solid transparent;
+    font-weight: bold;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+QTabBar::tab:selected {
+    background: #ffffff;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    border-bottom: 1px solid #ffffff; /* 본문과 자연스럽게 연결 */
+}
+QTabBar::tab:hover:!selected {
+    background: #f1f5f9;
+}
