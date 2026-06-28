@@ -16,6 +16,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_msgs.msg import Int32
 from std_srvs.srv import Trigger
 
 from interfaces.msg import RobotStatus, TubeState
@@ -129,6 +130,9 @@ class RobotTaskManagerNode(Node):
         self.reset_slot_anchors_client = self.create_client(
             Trigger, '/vision/reset_slot_anchors', callback_group=cb_group
         )
+        # 트레이 전환 완료 알림: main_decision_node가 구독해 tray_transferred 플래그를 리셋함.
+        # 새 tray_idx 값을 실어 보내서 수신 측에서 로그 출력에 활용 가능.
+        self.tray_advanced_pub = self.create_publisher(Int32, '/robot/tray_advanced', 10)
         self.reset_handled_slots_client = self.create_client(
             Trigger, '/vision/reset_handled_slots', callback_group=cb_group
         )
@@ -534,6 +538,7 @@ class RobotTaskManagerNode(Node):
             return
 
         self.tray_idx += 1
+        self.tray_advanced_pub.publish(Int32(data=self.tray_idx))
         for client, request in (
             (self.reset_slot_anchors_client, Trigger.Request()),
             (self.reset_handled_slots_client, Trigger.Request()),

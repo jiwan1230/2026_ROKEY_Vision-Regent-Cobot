@@ -11,7 +11,7 @@ re-evaluated here and may trigger the next tier's task.
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Int32
 from std_srvs.srv import SetBool
 
 from interfaces.msg import TubeState
@@ -45,6 +45,9 @@ class MainDecisionNode(Node):
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
         self.create_subscription(Bool, "/robot/force_detected", self.on_force_detected, 10)
+        # robot_task_manager_node가 _advance_tray() 시 발행 → tray_transferred 플래그 리셋.
+        # 새 트레이가 all_normal이어도 transfer_tray()가 다시 호출되도록 허용함.
+        self.create_subscription(Int32, "/robot/tray_advanced", self.on_tray_advanced, 10)
 
         # HMI 등 다른 클라이언트가 토글하고 현재 상태를 구독할 수 있게 노출
         self.hand_safety_enabled_pub = self.create_publisher(
@@ -93,6 +96,10 @@ class MainDecisionNode(Node):
         response.message = f"system_running set to {self.system_running}"
         self.get_logger().warn(response.message)
         return response
+
+    def on_tray_advanced(self, msg: Int32):
+        self.tray_transferred = False
+        self.get_logger().info(f"Tray advanced to idx={msg.data} — tray_transferred reset")
 
     def on_camera_status(self, msg: Bool):
         self.camera_ok = msg.data
