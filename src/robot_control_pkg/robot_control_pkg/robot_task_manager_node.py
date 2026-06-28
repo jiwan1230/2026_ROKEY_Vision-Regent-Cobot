@@ -512,15 +512,13 @@ class RobotTaskManagerNode(Node):
         self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_lift_pose(self.tray_idx), 'move', status)
-        # 리프트 후 성공 존으로 직행하면 뒤쪽 트레이 컵(tray_idx=0 fix)이나
-        # 이미 놓인 성공 존 트레이(tray_idx=2 fix)와 충돌할 수 있음.
-        # 툴 스탠드 위치를 1차 경유점으로 삼아 안전 높이를 확보한다.
-        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
         if self.tray_idx >= 2:
-            # 2번 이상 트레이: 성공 존에 이미 놓인 1번 트레이와 충돌 방지.
-            # 0번 트레이 접근 위치(작업 영역 내 안전 경로)를 2차 경유점으로 사용해
-            # 성공 존을 다른 방향에서 진입한다.
+            # 2번 트레이: lift 직후 tool_approach_pose(0)로 먼저 빠져나와
+            # 성공 존에 이미 놓인 1번 트레이와의 충돌을 회피한다.
+            # 그 다음 TRAY_TOOL_STAND_APPROACH_POSE를 경유해 안전 높이 확보 후 성공 존 진입.
             self.move(tray_transfer_tool_approach_pose(0), 'move', status)
+        # tray_idx=0,1: 뒤쪽 트레이 컵 충돌 방지를 위해 툴 스탠드 위치 경유
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
 
         self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move', status)
         self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray', status)
