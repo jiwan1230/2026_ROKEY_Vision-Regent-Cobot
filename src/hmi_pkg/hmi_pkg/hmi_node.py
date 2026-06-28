@@ -402,6 +402,7 @@ class HMIDashboardApp(QDialog):
     _detector_buffer_params_ready = pyqtSignal(object, object)
     _apply_complete_signal        = pyqtSignal(bool, str)       # (success, message)
     _update_feature_btn_signal    = pyqtSignal(object, bool)    # (btn, on) — 서비스 실패 시 롤백용
+    _tcp_params_ready             = pyqtSignal(object)          # tcp_offset 6개 값
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -417,6 +418,7 @@ class HMIDashboardApp(QDialog):
         self._detector_buffer_params_ready.connect(self._apply_detector_buffer_params)
         self._apply_complete_signal.connect(self._on_apply_complete)
         self._update_feature_btn_signal.connect(self._update_feature_btn)
+        self._tcp_params_ready.connect(self._apply_tcp_params_to_ui)
         self.yolo_enabled = False
         self._grip_fail_shown = False
         self._vision_log_seen = 0
@@ -466,6 +468,7 @@ class HMIDashboardApp(QDialog):
         self.btn_admin_logout.clicked.connect(self._on_admin_logout)
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
         self.btn_apply_robot_param.clicked.connect(self.on_apply_robot_param)
+        self.btn_apply_tcp_admin.clicked.connect(self._on_apply_tcp)  # 2026-06-28 soo: TCP 적용
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -605,6 +608,7 @@ class HMIDashboardApp(QDialog):
             self.log("시스템 관리자 로그인 성공")
             self._load_robot_params()
             self._load_vision_params()  # 2026-06-27 soo: 로그인 시 비전 파라미터 초기값 로드
+            self._load_tcp_params()     # 2026-06-28 soo: 로그인 시 TCP offset 초기값 로드
         else:
             self.lbl_admin_login_status.setText("아이디 또는 비밀번호가 올바르지 않습니다.")
             self.input_admin_pw.clear()
@@ -753,6 +757,9 @@ class HMIDashboardApp(QDialog):
         self._prev_force_detected = force
         if self._force_latch != self._force_shown:
             self.force_alert_signal.emit(self._force_latch)
+
+        # 2026-06-28 soo: 로봇 정지(IDLE) 여부에 따라 TCP 설정 위젯 활성/비활성
+        self._update_tcp_gate()
 
     # -----------------------------------------------------------------
     # 로봇 파라미터 탭 UI 동적 빌드
@@ -1788,6 +1795,113 @@ class HMIDashboardApp(QDialog):
         else:
             self._apply_complete_signal.emit(
                 True, f"파라미터 {total_applied}개 전체 적용 완료")
+
+    # =================================================================
+    # 2026-06-28 soo: TCP 좌표 설정 (관리자 → 모션제어 → 🎯 TCP 좌표)
+    #   - 초기값: doosan_robot_control_node의 tcp_offset 파라미터를 로그인 시 로드
+    #   - 적용:   SetParameters(tcp_offset) — 로봇 정지(IDLE)일 때만 허용
+    #   - 노드 쪽에도 동일 가드가 있어 HMI 우회 시에도 거부됨 (이중 안전)
+    # =================================================================
+    def _tcp_edits(self):
+        return [
+            self.edit_tcp_admin_x, self.edit_tcp_admin_y, self.edit_tcp_admin_z,
+            self.edit_tcp_admin_a, self.edit_tcp_admin_b, self.edit_tcp_admin_c,
+        ]
+
+    def _is_robot_idle_for_tcp(self):
+        # 정지(system_running=False) + status IDLE 일 때만 TCP 변경 허용.
+        # system_running이 켜져 있으면 지금 IDLE이어도 곧 움직일 수 있으므로 불허.
+        if self.node.system_running:
+            return False
+        status_msg = self.node.latest_robot_status
+        if status_msg is None:
+            return True  # 상태 수신 전(기동 직후) — 로봇 정지 상태로 간주
+        return status_msg.status == RobotStatus.STATUS_IDLE
+
+    def _update_tcp_gate(self):
+        allowed = self._is_robot_idle_for_tcp()
+        for e in self._tcp_edits():
+            e.setEnabled(allowed)
+        self.btn_apply_tcp_admin.setEnabled(allowed)
+        if allowed:
+            self.btn_apply_tcp_admin.setText("💾 TCP 좌표 로봇에 적용")
+        else:
+            self.btn_apply_tcp_admin.setText("⛔ 로봇 동작 중 — 정지(IDLE) 시 설정 가능")
+
+    def _load_tcp_params(self):
+        if self.node.get_param_doosan_client.service_is_ready():
+            fut = self.node.call_get_param_doosan(['tcp_offset'])
+            fut.add_done_callback(self._on_tcp_params_loaded)
+        else:
+            self.log("[경고] doosan 파라미터 서비스 미준비 — TCP 초기값 로드 생략")
+
+    def _on_tcp_params_loaded(self, future):
+        # ROS 스핀 스레드에서 호출 — 위젯 직접 접근 금지, 시그널로 GUI 스레드 전달
+        try:
+            result = future.result()
+        except Exception as e:
+            self.log_signal.emit(f"[GetParameters/tcp] 오류: {e}")
+            return
+        if result.values and result.values[0].type == ParameterType.PARAMETER_DOUBLE_ARRAY:
+            self._tcp_params_ready.emit(list(result.values[0].double_array_value))
+
+    def _apply_tcp_params_to_ui(self, vals):
+        # GUI 스레드 슬롯 — 위젯 업데이트 안전
+        for e, v in zip(self._tcp_edits(), vals[:6]):
+            e.setText(f"{v:.3f}")
+        self.log("[TCP] 초기값 로드 완료")
+
+    def _on_apply_tcp(self):
+        if not self._is_robot_idle_for_tcp():
+            QMessageBox.warning(
+                self, "TCP 설정 불가",
+                "로봇이 정지(IDLE) 상태일 때만 TCP를 변경할 수 있습니다.\n"
+                "Stop으로 자동 운전을 끄고 로봇이 멈춘 뒤 다시 시도하세요.")
+            return
+        try:
+            vals = [float(e.text()) for e in self._tcp_edits()]
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "TCP 좌표 6개는 모두 숫자여야 합니다.")
+            return
+        self.log(f"TCP 적용 요청: {vals}")
+        threading.Thread(target=self._apply_tcp_thread, args=(vals,), daemon=True).start()
+
+    def _apply_tcp_thread(self, vals):
+        if not self.node.set_param_doosan_client.wait_for_service(timeout_sec=3.0):
+            self._apply_complete_signal.emit(
+                False, "[doosan] 서비스 미응답 — doosan_robot_control_node 실행 확인")
+            return
+
+        pval = ParameterValue()
+        pval.type = ParameterType.PARAMETER_DOUBLE_ARRAY
+        pval.double_array_value = vals
+        p = Parameter()
+        p.name = 'tcp_offset'
+        p.value = pval
+
+        errors = []
+        done_ev = threading.Event()
+
+        def on_done(f):
+            try:
+                result = f.result()
+                for r in result.results:
+                    if not r.successful:
+                        errors.append(r.reason)
+                        self.log_signal.emit(f"[TCP] 적용 실패: {r.reason}")
+            except Exception as e:
+                errors.append(str(e))
+                self.log_signal.emit(f"[TCP] SetParameters 오류: {e}")
+            finally:
+                done_ev.set()
+
+        self.node.call_set_param_doosan([p]).add_done_callback(on_done)
+        done_ev.wait(timeout=5.0)
+
+        if errors:
+            self._apply_complete_signal.emit(False, "\n".join(errors))
+        else:
+            self._apply_complete_signal.emit(True, f"TCP 좌표 적용 완료: {vals}")
 
 
 def main(args=None):

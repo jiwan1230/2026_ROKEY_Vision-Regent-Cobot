@@ -1788,7 +1788,7 @@
                        </widget>
                       </item>
                       <item row="0" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_x">
+                       <widget class="QLineEdit" name="edit_tcp_admin_x">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1796,7 +1796,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>
@@ -1812,7 +1815,7 @@
                        </widget>
                       </item>
                       <item row="1" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_y">
+                       <widget class="QLineEdit" name="edit_tcp_admin_y">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1820,7 +1823,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>
@@ -1836,7 +1842,7 @@
                        </widget>
                       </item>
                       <item row="2" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_z">
+                       <widget class="QLineEdit" name="edit_tcp_admin_z">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1844,7 +1850,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>
@@ -1860,7 +1869,7 @@
                        </widget>
                       </item>
                       <item row="3" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_a">
+                       <widget class="QLineEdit" name="edit_tcp_admin_a">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1868,7 +1877,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>
@@ -1884,7 +1896,7 @@
                        </widget>
                       </item>
                       <item row="4" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_b">
+                       <widget class="QLineEdit" name="edit_tcp_admin_b">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1892,7 +1904,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>
@@ -1908,7 +1923,7 @@
                        </widget>
                       </item>
                       <item row="5" column="1">
-                       <widget class="QPushButton" name="btn_tcp_admin_c">
+                       <widget class="QLineEdit" name="edit_tcp_admin_c">
                         <property name="minimumSize">
                          <size>
                           <width>200</width>
@@ -1916,7 +1931,10 @@
                          </size>
                         </property>
                         <property name="styleSheet">
-                         <string>QPushButton { background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px; text-align: right; } QPushButton:hover { border-color: #42A5F5; } QPushButton:pressed { background-color: #0d1117; }</string>
+                         <string>background-color: #1a1a2e; color: #00e5ff; font-size: 16px; font-weight: bold; font-family: monospace; border: 2px solid #1565C0; border-radius: 5px; padding: 6px 14px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignRight|Qt::AlignVCenter</set>
                         </property>
                         <property name="text">
                          <string>0.000</string>

@@ -20,7 +20,9 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Float64
 from std_srvs.srv import Trigger
+from rcl_interfaces.msg import SetParametersResult
 from dsr_msgs2.srv import MoveStop, GetToolForce
+from interfaces.msg import RobotStatus
 from interfaces.srv import MoveToPose, AddTcp, SetTcp
 from robot_control_pkg.poses import all_pose_names
 
@@ -121,7 +123,11 @@ class DoosanRobotControlNode(Node):
         # self.current_tcp_name = "default_tcp"
         # self.current_tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.current_tcp_name = "gripper_tcp"
-        self.current_tcp_offset = [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
+        # 20260628 soo: TCP offset을 ROS 파라미터로 노출 - HMI 관리자 탭에서 런타임
+        # 조회(get_parameters)/변경(set_parameters)한다. robot_params.yaml의
+        # tcp_offset으로 초기값을 덮어쓸 수 있다.
+        self.declare_parameter("tcp_offset", [0.0, 0.0, 200.0, 0.0, 0.0, 0.0])
+        self.current_tcp_offset = list(self.get_parameter("tcp_offset").value)
         self.tcp_rotate_offset = [0.0, 25.0, 0.0, 0.0, 0.0, 0.0]
 
         self._force_detected = False
@@ -173,7 +179,41 @@ class DoosanRobotControlNode(Node):
         self.create_service(
             Trigger, "/robot/hard_stop", self.handle_hard_stop, callback_group=ReentrantCallbackGroup()
         )
+
+        # 20260628 soo: TCP 변경 가드용 - 로봇이 정지(system_running=False)이고 IDLE일
+        # 때만 tcp_offset 변경을 허용한다. 두 신호를 캐시해뒀다가 set_parameters
+        # 콜백에서 검사. 기동 직후 메시지 수신 전이면 정지/IDLE로 간주(실제로 idle).
+        self._system_running = False
+        self._robot_status = RobotStatus.STATUS_IDLE
+        self.create_subscription(Bool, "/robot/system_running", self._on_system_running, 10)
+        self.create_subscription(RobotStatus, "/robot/status", self._on_robot_status_msg, 10)
+        self.add_on_set_parameters_callback(self._on_set_parameters)
+
         self.get_logger().info(f"doosan_robot_control_node ready ({len(self.poses)} poses loaded)")
+
+    # 20260628 soo: TCP는 로봇이 정지 + IDLE일 때만 변경 가능 (안전 가드)
+    def _on_system_running(self, msg):
+        self._system_running = msg.data
+
+    def _on_robot_status_msg(self, msg):
+        if msg.status:
+            self._robot_status = msg.status
+
+    def _robot_busy_for_tcp(self):
+        # 자동 운전 중이면 지금 IDLE이어도 곧 움직일 수 있으므로 동작 중으로 간주.
+        return self._system_running or self._robot_status != RobotStatus.STATUS_IDLE
+
+    def _on_set_parameters(self, params):
+        for p in params:
+            if p.name == "tcp_offset":
+                if self._robot_busy_for_tcp():
+                    reason = ("로봇 동작 중에는 TCP를 변경할 수 없습니다 "
+                              "(자동 운전 정지 후 IDLE 상태에서만 가능)")
+                    self.get_logger().warn(reason)
+                    return SetParametersResult(successful=False, reason=reason)
+                self.current_tcp_offset = list(p.value.double_array_value)
+                self.get_logger().info(f"TCP offset 변경 적용: {self.current_tcp_offset}")
+        return SetParametersResult(successful=True)
 
     #20260625 JH, add_tcp 함수추가 : 이미 있는 내용인지 확인 후 추가
     def handle_add_tcp(self, request, response):
