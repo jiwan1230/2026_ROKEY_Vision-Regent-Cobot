@@ -626,6 +626,11 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # 종료 전 stop_event를 set해 _call_sync 내 블로킹 콜백 스레드가
+        # 체크포인트에서 TaskAborted를 던지고 빠져나오도록 한다.
+        # 이렇게 해야 movel() 대기 중에 Ctrl+C를 눌렀을 때 프로세스가
+        # 즉시 종료되고 DDS 스테이트가 깔끔하게 정리된다.
+        node.stop_event.set()
         node.destroy_node()
         rclpy.shutdown()
 
