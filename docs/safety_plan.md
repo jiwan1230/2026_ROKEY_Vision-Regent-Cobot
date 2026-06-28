@@ -1,47 +1,99 @@
 # 안전 관리 설계
 
-본 시스템은 협동로봇과 시약을 함께 다루므로 안전 설계가 필수이다.
+## 안전 계층 구조
 
-## 기본 안전 대책 (구현 매핑)
+```
+레벨 1 (하드웨어): 로봇 제한 속도, 작업영역 물리적 펜스
+레벨 2 (외력 감지): GetToolForce 폴링 → 20N 초과 시 즉시 정지
+레벨 3 (Vision 안전): 손 감지 ROI 필터 → 작업 중단/재개
+레벨 4 (시스템 게이트): camera_ok / force_detected / hand_detected 복합 조건
+레벨 5 (HMI): Emergency Stop 버튼, Force Alert 팝업, 수동 Start/Stop
+```
 
-| 대책 | 구현 |
-|---|---|
-| 로봇 작업 영역 명확히 구분 | `config/robot_params.yaml`의 named pose가 approach/pick/refill로 분리되어 영역이 고정됨 |
-| 비상정지 버튼을 작업자가 즉시 누를 수 있는 위치에 둠 | HMI Control Panel의 `EMERGENCY STOP` 버튼 → `/robot/stop_task` |
-| 로봇 동작 속도 제한 | `doosan_robot_control_node`의 `velocity`/`acceleration` 파라미터 (실제 연동 시 `movel(vel=, acc=)`로 전달) |
-| 파지 및 접근 동작은 저속으로 수행 | approach pose를 경유한 뒤에만 pick/refill pose로 진입 (모든 작업 시퀀스가 이 순서를 따름) |
-| 시약통 파지 전후 그리퍼 상태 확인 | `grip_with_retry()`가 실패 시 1회 재시도 후 작업을 ERROR로 종료 |
-| 카메라 인식 실패 시 로봇이 동작하지 않도록 함 | `/vision/camera_status=False` → `main_decision_node`가 `/robot/start_task` 호출을 보류 |
-| 시약 보충/폐기 동작은 반드시 사전 정의된 좌표에서만 수행 | `doosan_robot_control_node`가 `config/robot_params.yaml`에 등록된 pose_name만 허용 (미등록 이름은 실패 응답) |
-| 로봇 동작 중 작업자가 접근하면 작업을 중단할 수 있도록 함 | `hand` 클래스 검출 → `/vision/hand_detected=True` → `main_decision_node`가 즉시 `/robot/stop_task` 호출 |
-| 모든 오류는 HMI와 로그에 기록 | `/robot/status`(ERROR/EMERGENCY_STOP) + HMI Log Panel + Safety Panel |
-| 실제 위험 시약 대신 안전한 대체 액체로 먼저 검증 | (운영 절차 - 코드 범위 밖) |
+## 구현된 안전 기능
+
+| 안전 대책 | 구현 방법 | 관련 코드 |
+|-----------|----------|-----------|
+| **외력 감지 즉시 정지** | `GetToolForce` (~7Hz 폴링) → force_norm > 20N 시 stop_event 세팅 | `doosan_robot_control_node.py` |
+| **외력 실시간 모니터링** | `/robot/force_norm` (Float64) → HMI Force Monitor 탭 그래프 | `hmi_node.py` |
+| **손 감지 작업 중단** | YOLOv8n hand 클래스 + y>250px ROI 필터 → 동작 일시 정지, 손 사라지면 자동 재개 | `liquid_height_detector_node.py` |
+| **카메라 단절 보호** | watchdog 타임아웃 → `camera_status=False` → dispatch 차단 | `liquid_height_detector_node.py` |
+| **HMI Emergency Stop** | 버튼 → `/robot/stop_task(stop=True, is_emergency=True)` | `hmi_node.py` |
+| **approach 경유 강제** | 모든 pick/refill 동작은 approach_pose 경유 후 진입 | `robot_task_manager_node.py` |
+| **그리퍼 파지 재시도** | `grip_with_retry()` → 실패 시 1회 재시도 후 ERROR | `robot_task_manager_node.py` |
+| **UNKNOWN 상태 보류** | STATE_UNKNOWN(-1) 존재 시 start_task 호출 금지 | `main_decision_node.py` |
+| **TCP 변경 잠금** | `system_running=True` 또는 로봇 비IDLE 상태에서 tcp_offset 변경 불가 | `doosan_robot_control_node.py` |
+| **속도/가속도 제한** | `velocity=60, acceleration=60` (기본값), HMI에서 런타임 조정 가능 | `robot_params.yaml` |
+| **트레이 충돌 회피** | tray 이송 시 경유 웨이포인트로 인접 트레이 컵과의 충돌 방지 | `robot_task_manager_node.py` |
+| **외력 해제는 수동** | 외력 감지 후 Start 버튼으로만 재개 (자동 재개 없음) | `main_decision_node.py` |
+
+## 외력 감지 상세 동작
+
+```
+doosan_robot_control_node (약 7Hz 타이머):
+  GetToolForce() → [Fx, Fy, Fz, Tx, Ty, Tz]
+  force_norm = sqrt(Fx² + Fy² + Fz²)
+  
+  force_norm > 20N (robot_params.yaml: force_threshold)
+    → /robot/force_detected = True 발행
+    → main_decision_node: force_detected=True, dispatch 차단
+    → robot_task_manager_node: stop_event 세팅, 진행 중 movel 중단
+    → hmi_node: Force Alert 팝업 래치 (Start 전까지 유지)
+  
+  /robot/force_norm 발행 (항상, 실시간 모니터링용)
+    → HMI Force Monitor 탭: 30초 롤링 그래프 갱신
+```
+
+## 손 감지 상세 동작
+
+```
+liquid_height_detector_node:
+  YOLOv8n 'hand' 클래스 검출
+  → y 좌표 중심 >= 250px (hand_roi_y_min_px) 인 경우만 유효
+    (로봇 암 자체가 상단에서 hand로 오검출되는 것 필터링)
+  → /vision/hand_detected = True 발행
+
+main_decision_node:
+  hand_detected=True + busy=True + hand_safety_enabled=True
+    → /robot/stop_task(stop=True) 호출 (비상정지 아님, 일시 정지)
+  
+  hand_detected=False (손 사라짐) + busy=True
+    → /robot/stop_task(stop=False) 호출 → 동작 재개
+```
 
 ## 오류 처리 시나리오
 
 ### Vision 오류
 
-| 오류 상황 | 처리 방법 | 구현 |
-|---|---|---|
-| 카메라 연결 실패 | HMI에 오류 표시, 로봇 동작 금지 | `camera_timeout_sec` 초과 시 `/vision/camera_status=False`; `main_decision_node`가 동작 보류 |
-| 시약통 검출 실패 | 해당 index를 UNKNOWN으로 표시, 수동 확인 요청 | cup/height 매칭 실패 시 confidence=0.0 → `tube_state_publisher_node`가 STATE_UNKNOWN(-1) 분류 |
-| confidence 낮음 | 재촬영 또는 조명 확인 요청 | `confidence_threshold` 미달 시 STATE_UNKNOWN, HMI에 회색으로 표시 |
-| 높이 추론값 이상 | State 2 또는 Manual Check로 처리 | 임계값 로직상 `target±tolerance` 밖이면 자동으로 State 2(폐기) 분류됨 |
+| 오류 상황 | 처리 방법 |
+|-----------|----------|
+| 카메라 연결 실패 | watchdog 타임아웃 → camera_status=False → dispatch 보류, HMI DISCONNECTED 표시 |
+| 시약통 미검출 | cup/height 매칭 실패 → confidence=0 → STATE_UNKNOWN(-1) → dispatch 보류 |
+| confidence 낮음 | confidence_threshold 미달 → STATE_UNKNOWN → HMI 회색 표시 |
+| 높이 이상값 | target±tolerance 밖 → State 2(폐기) 자동 분류 |
 
 ### Robot 오류
 
-| 오류 상황 | 처리 방법 | 구현 |
-|---|---|---|
-| 로봇 이동 실패 | 즉시 정지 후 HMI 오류 표시 | `move()`가 `response.success=False`면 `TaskFailed` 발생 → `/robot/status=ERROR` |
-| 그리퍼 파지 실패 | 재시도 1회 후 실패 시 수동 확인 | `grip_with_retry()` (`grip_retry_count` 파라미터) |
-| 외력 감지 이상 | 로봇 정지 및 작업자 확인 요청 | (실제 하드웨어 연동 시 `DSR_ROBOT2`의 외력 감지 콜백을 `/robot/stop_task` 호출에 연결 - 현재 mock에는 외력 센서 없음) |
-| 좌표 접근 실패 | 해당 작업 중단 후 home pose 복귀 | `TaskFailed`/`TaskAborted` 발생 시 현재 시퀀스를 즉시 중단 (모든 시퀀스가 정상 종료 시 `home_pose`로 복귀하도록 설계됨) |
+| 오류 상황 | 처리 방법 |
+|-----------|----------|
+| 로봇 이동 실패 | `move()` 응답 실패 → TaskFailed → STATUS_ERROR → HMI 표시 |
+| 그리퍼 파지 실패 | `grip_with_retry()` 1회 재시도 → 실패 시 TaskFailed |
+| 외력 감지 | 즉시 정지 → HMI Alert → 작업자 Start 버튼으로 재개 |
+| TCP 외력 측정 실패 | GetToolForce 예외 → 로그 경고만 (측정 스킵, 동작 계속) |
 
 ### Communication 오류
 
-| 오류 상황 | 처리 방법 | 구현 |
-|---|---|---|
-| Vision PC와 Main PC 통신 끊김 | 로봇 동작 중지 | `/vision/camera_status` 갱신 중단 시 watchdog이 `False`로 보고 → 동작 보류 |
-| ROS2 Topic 수신 지연 | 최신 데이터만 사용, 오래된 데이터 폐기 | 각 구독자가 콜백마다 `latest_*` 캐시를 덮어씀 (오래된 메시지 큐잉 없음, QoS depth=10) |
-| 상태 배열 누락 | 작업 시작 금지 | `main_decision_node`가 `len(msg.tube_index) < num_tubes`면 작업 보류 |
-| 재검사 응답 없음 | Timeout 처리 후 수동 확인 | `/vision/request_recheck`가 `recheck_wait_timeout_sec` 내 새 상태가 없으면 `success=False` 반환; `robot_task_manager_node`는 이를 로그로 경고만 남기고 작업 자체는 완료 처리 (다음 사이클이 자연 복구) |
+| 오류 상황 | 처리 방법 |
+|-----------|----------|
+| Vision PC 통신 끊김 | camera_status watchdog → False → 동작 보류 |
+| Modbus TCP 연결 실패 | gripper_control_node 시작 시 재연결 시도, 실패 시 로그 경고 |
+| ROS2 서비스 미응답 | `_call_sync()` 타임아웃 → TaskFailed |
+| 상태 배열 불완전 | `len(tube_index) < num_tubes` → dispatch 보류 |
+
+## 비상정지 복구 절차
+
+1. 로봇 완전 정지 확인
+2. 위험 요인 제거 (장애물, 이상 외력 원인)
+3. HMI Force Alert 팝업 확인
+4. HMI **Start** 버튼 클릭 → force_detected 리셋, 시스템 재개
+5. 필요 시 `scripts/restart_system.sh` 실행으로 전체 재시작

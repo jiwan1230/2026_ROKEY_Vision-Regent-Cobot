@@ -1,44 +1,183 @@
 # 전체 동작 순서도
 
+## 메인 사이클 흐름
+
 ```
-Start[Start System] --> Init[Initialize Camera, ROS2 Nodes, Robot]
-Init --> Capture[Capture Side-view Image]
-Capture --> Infer[Infer Liquid Height (YOLOv8n)]
-Infer --> Publish[Publish Height/State Data]
-Publish --> Decision[main_decision_node: safety gate + dispatch]
-
-Decision --> HasState2{Any State 2?}
-HasState2 -- Yes --> Dispose[Pick Tube(s) and Move to Waste Zone]
-Dispose --> Recheck1[Request Recheck]
-
-HasState2 -- No --> HasState0{Any State 0?}
-HasState0 -- Yes --> Refill[Move to Tube(s) and Refill Reagent]
-Refill --> Recheck2[Request Recheck]
-
-HasState0 -- No --> AllNormal{All State 1?}
-AllNormal -- Yes --> MoveTray[Move Tray to Normal Zone]
-AllNormal -- No --> Idle[No action this cycle]
-
-Recheck1 --> Capture
-Recheck2 --> Capture
-MoveTray --> End[Task Complete]
-Idle --> Capture
+ [시스템 시작]
+      │
+      ▼
+ 노드 초기화 (카메라, ROS2, 로봇, 그리퍼 Modbus 연결)
+      │
+      ▼
+ HMI "Start" 버튼 → system_running=True
+      │
+      ▼
+ ┌────────────────────────────────────────────────┐
+ │          Vision 파이프라인 (연속 반복)           │
+ │  side_camera_node → CompressedImage 발행        │
+ │  liquid_height_detector_node (YOLOv8n 추론)     │
+ │   → tube_height, hand_detected, camera_status   │
+ │  tube_state_publisher_node                      │
+ │   → tube_state (State 0/1/2/UNKNOWN)            │
+ └───────────────────────┬────────────────────────┘
+                         │ /vision/tube_state
+                         ▼
+              [main_decision_node 안전 게이트]
+                         │
+          ┌──────────────┼──────────────────┐
+          │              │                  │
+    camera_ok?    hand_detected?    force_detected?
+      NO→보류        YES→보류          YES→보류
+          │              │                  │
+          └──────────────┴──────────────────┘
+                         │ 모두 통과
+                         ▼
+              [robot_task_manager_node 우선순위 분기]
+                         │
+           ┌─────────────┼─────────────┐
+           │             │             │
+       State 2?      State 0?    All State 1?
+         YES            YES          YES
+           │             │             │
+           ▼             ▼             ▼
+       [폐기]         [보충]       [트레이 이송]
 ```
 
-## 구현 매핑
+---
 
-- `Capture` ~ `Publish`: `side_camera_node` → `liquid_height_detector_node` → `tube_state_publisher_node` (계속 반복 실행되는 파이프라인, 정지 없음).
-- `Decision`: `main_decision_node.on_tube_state()`. 카메라 상태/손 감지/UNKNOWN 여부를 먼저 확인하고, 통과하면 `/robot/start_task`를 호출한다.
-- `HasState2? / HasState0? / AllNormal?`과 그에 따른 한 가지 작업 수행: `robot_task_manager_node.handle_start_task()` 내부의 우선순위 분기 (`dispose_idxs` > `refill_idxs` > `all_normal`).
-- `Recheck1 / Recheck2 --> Capture`: 명세서 원본에서는 recheck가 캡처 단계로 되돌아가는 루프로 그려져 있다. 본 구현에서는 이를 "하나의 블로킹 호출 내부 루프"로 만들지 않고, **각 사이클마다 최고 우선순위 작업 1건만 처리한 뒤 종료**하고, 그 다음 자연스럽게 들어오는 새로운 `/vision/tube_state`(카메라 파이프라인은 멈추지 않으므로 계속 갱신됨)가 다음 사이클의 `Decision`을 다시 트리거하는 방식으로 구현했다. 결과적으로 동일한 순서도를 여러 ROS2 사이클에 걸쳐 재현한다.
+## 세부 동작: 폐기 (State 2 — Dispose)
 
-## Scenario 매핑
+```
+ tube_X 폐기 대상 확인
+      │
+      ▼
+ home_pose → tube_X_approach_pose → tube_X_pick_pose
+      │
+      ▼
+ 그리퍼 CLOSE (Modbus 폴링으로 grip_detected 확인)
+      │
+      ▼
+ tube_X_pick_pose → tube_X_approach_pose (lift)
+      │
+      ▼
+ waste_approach_pose → waste_pose
+      │
+      ▼
+ [시약 분주 (dispose)]
+  reagent_dispose: 회전(rotate) → 털기(shake) → 원위치
+  tube_dispose:    튜브 내용 비우기 동작
+      │
+      ▼
+ 그리퍼 OPEN
+      │
+      ▼
+ /vision/mark_tube_disposed → /vision/request_recheck
+      │
+      ▼
+ home_pose → 다음 사이클 대기
+```
 
-| Scenario | 입력 예시 | 결과 |
-|---|---|---|
-| A: 일부 State 0 | `[0, 1, 1]` | `refill_idxs=[0]` → tube 0 보충 → recheck → (정상이면) 다음 사이클에서 트레이 이송 |
-| B: 일부 State 2 | `[1, 2, 1]` | `dispose_idxs=[1]` → tube 1 폐기 → recheck |
-| C: 전체 State 1 | `[1, 1, 1]` | `all_normal=True` → 트레이 전체 정상 구역 이송 |
-| D: State 0 + State 2 동시 | `[0, 2, 1]` | 1순위인 `dispose_idxs=[1]` 먼저 처리 → recheck → 다음 사이클에서 `refill_idxs=[0]` 처리 → recheck → 모두 정상이면 트레이 이송 |
+---
 
-Scenario D처럼 여러 상태가 동시에 존재해도, `robot_task_manager_node`가 매 호출마다 최우선순위 1건만 처리하므로 "폐기 > 보충 > 정상 이송" 순서가 항상 보장된다.
+## 세부 동작: 보충 (State 0 — Refill)
+
+```
+ tube_X 보충 대상 확인
+      │
+      ▼
+ home_pose → tray_pick_approach → tray_pick_pose
+      │
+      ▼
+ 시약 트레이(reagent) 파지 (그리퍼 CLOSE)
+      │
+      ▼
+ tray_pick_pose → tube_X_approach_pose → tube_X_refill_pose
+      │
+      ▼
+ [보충 루프]
+  refill_pose에서 기울이기 → /robot/current_tube_state 폴링
+  State 1(NORMAL) 연속 N회 확인 시 루프 종료
+      │
+      ▼
+ tube_X_refill_pose → tube_X_approach_pose → tray_pick_pose
+      │
+      ▼
+ 그리퍼 OPEN (시약 트레이 복귀)
+      │
+      ▼
+ /vision/request_recheck → 다음 사이클
+```
+
+---
+
+## 세부 동작: 트레이 이송 (All Normal — Transfer)
+
+```
+ tray_idx = 0, 1, 2 순서로 순차 처리
+      │
+      ▼
+ home_pose → tray_tool_approach_pose(tray_idx)
+      │
+      ▼
+ 그리퍼 CLOSE (트레이 파지)
+      │
+      ▼
+ tray_transfer_lift_pose(tray_idx)  ← 트레이 들어올림
+      │
+      ├── [tray_idx >= 2] ──► tray_transfer_tool_approach_pose(0)
+      │                             ↓  (1번 성공 트레이 충돌 회피)
+      │
+      ▼
+ TRAY_TOOL_STAND_APPROACH_POSE  ← 뒤쪽 트레이 컵 충돌 방지 경유지
+      │
+      ▼
+ tray_transfer_success_approach_pose(tray_idx) → 성공 구역 안착
+      │
+      ▼
+ 그리퍼 OPEN
+      │
+      ▼
+ /robot/tray_advanced 발행 (tray_idx+1)
+      │
+      ▼
+ 모든 트레이 완료 시 → 작업 종료
+```
+
+---
+
+## 외력 감지 안전 인터럽트
+
+```
+ doosan_robot_control_node: GetToolForce 폴링 (약 7Hz)
+      │
+      ▼
+ force_norm > 20N ?
+      │ YES
+      ▼
+ /robot/force_detected = True 발행
+      │
+      ▼
+ main_decision_node: force_detected = True → dispatch 보류
+ robot_task_manager_node: stop_event 세팅 → 진행 중 동작 정지
+ hmi_node: Force Alert 팝업 표시
+      │
+      ▼
+ 작업자 확인 후 HMI "Start" 버튼 클릭
+      │
+      ▼
+ force_detected = False (리셋) → 자동 dispatch 재개
+```
+
+---
+
+## 시나리오 매핑
+
+| 시나리오 | 입력 예시 | 처리 순서 |
+|----------|-----------|-----------|
+| A: 일부 보충 필요 | `[0, 1, 1]` | refill(0) → recheck → (정상) → tray transfer |
+| B: 일부 폐기 필요 | `[1, 2, 1]` | dispose(1) → recheck |
+| C: 전체 정상 | `[1, 1, 1]` | tray transfer (tray 0→1→2 순서) |
+| D: 보충+폐기 동시 | `[0, 2, 1]` | dispose(1) → recheck → refill(0) → recheck → tray transfer |
+| E: 외력 감지 발생 | 작업 중 충돌 | 즉시 정지 → 팝업 → 작업자 Start → 재개 |
+
+매 사이클마다 최고 우선순위 1건만 처리(State2 > State0 > State1). Vision 파이프라인은 멈추지 않으므로 recheck 없이도 다음 `/vision/tube_state`가 자동으로 다음 사이클을 트리거한다.

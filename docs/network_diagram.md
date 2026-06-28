@@ -1,27 +1,56 @@
 # Network Diagram
 
+## 물리 구성
+
 ```
-subgraph Vision_Side
-    Cam[USB/Web Camera] --> VPC[Vision Sub PC: vision_pkg]
-end
-
-subgraph Control_Side
-    MPC[Main PC: robot_control_pkg ROS2 Logic + hmi_pkg HMI]
-    RobotCtrl[doosan_robot_control_node]
-    M0609[M0609 Robot Arm]
-    Gripper[gripper_control_node]
-end
-
-VPC <--ROS2 DDS (LAN / Wi-Fi)--> MPC
-MPC --> RobotCtrl
-RobotCtrl --> M0609
-M0609 --> Gripper
+┌─────────────────────────────────────────────────────────────────┐
+│  Vision Sub PC  (vision_pkg)                                    │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  side_camera_node  →  liquid_height_detector_node          │ │
+│  │                    →  tube_state_publisher_node             │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│  USB  ↑                                                         │
+│  Side-view Camera                                               │
+└──────────────────────────────────┬──────────────────────────────┘
+                                   │  ROS2 DDS (LAN/Wi-Fi)
+                                   │  ROS_DOMAIN_ID=30
+┌──────────────────────────────────┴──────────────────────────────┐
+│  Main PC  (robot_control_pkg + hmi_pkg)                         │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  main_decision_node                                         │ │
+│  │  robot_task_manager_node                                    │ │
+│  │  doosan_robot_control_node  ── Doosan SDK ──────────────┐  │ │
+│  │  gripper_control_node  ─── Modbus TCP ─────────────┐    │  │ │
+│  │  hmi_node  (PyQt5 GUI)                              │    │  │ │
+│  └─────────────────────────────────────────────────────│────│──┘ │
+└────────────────────────────────────────────────────────│────│────┘
+                                                         │    │
+                         ┌───────────────────────────────┘    │
+                         │  Modbus TCP  192.168.1.1:502        │
+                         ▼                                     │
+              ┌──────────────────┐         EtherCAT/LAN        │
+              │  OnRobot RG2     │                             │
+              │  Gripper         │◄────────────────────────────┘
+              └──────────────────┘    Doosan DSR API (movel/movej)
+                         │                    │
+                         └────────────────────┘
+                               M0609 로봇 암
 ```
 
-## 권장 네트워크 구조
+## 통신 프로토콜 요약
 
-1. Vision Sub PC와 Main PC는 동일한 네트워크 대역에 연결한다.
-2. `ROS_DOMAIN_ID`를 양쪽 PC에 동일하게 설정한다 (예: `export ROS_DOMAIN_ID=30`).
-3. 카메라 추론 결과(`/vision/tube_height`, `/vision/tube_state`)는 Vision PC에서 발행하고, Main PC에서 구독한다.
-4. 로봇 제어 명령(`/robot/start_task`, `/robot/move_to_pose`, `/gripper/control`)은 Main PC에서 생성/호스팅한다.
-5. 현재 구현에서는 모든 노드가 단일 PC에서 실행되도록 mock 되어 있다 (`ros2 launch launch/system_launch.py`). 2-PC 분리 시 `vision_pkg`는 Vision Sub PC에서, `robot_control_pkg`/`hmi_pkg`는 Main PC에서 각각 `ros2 launch`로 실행하면 된다 (코드 변경 불필요, DDS가 네트워크 너머로 토픽/서비스를 자동 매칭한다).
+| 구간 | 프로토콜 | 내용 |
+|------|----------|------|
+| Vision PC ↔ Main PC | ROS2 DDS (UDP Multicast) | Topic / Service |
+| Main PC → M0609 | Doosan DSR API (`movel`, `movej`, `GetToolForce`) | 로봇 모션, 외력 측정 |
+| Main PC → Gripper | Modbus TCP (raw socket, FC3, Reg 268) | OPEN/CLOSE, 상태 폴링 |
+| Main PC → Gripper HW | Doosan digital I/O (`set_digital_output`) | 그리퍼 트리거 |
+
+## 네트워크 설정
+
+1. Vision Sub PC 와 Main PC를 동일 서브넷에 연결한다.
+2. 양쪽 PC 모두 `export ROS_DOMAIN_ID=30` (또는 동일한 값).
+3. Vision PC → `/vision/tube_state`, `/vision/tube_height`, `/vision/side_image` 발행.
+4. Main PC → `/robot/status`, `/robot/force_norm`, `/robot/force_detected` 발행.
+5. 단일 PC 실행 시: `ros2 launch launch/system_launch.py source_mode:=device camera_index:=4`
+6. 2-PC 분리 시: vision_pkg는 Vision PC에서, robot_control_pkg / hmi_pkg는 Main PC에서 각각 `ros2 launch`. 코드 변경 없이 DDS가 토픽/서비스를 자동 매칭한다.

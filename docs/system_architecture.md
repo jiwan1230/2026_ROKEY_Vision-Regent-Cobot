@@ -1,44 +1,83 @@
 # System Architecture
 
+## 전체 구성
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    Vision AI Reagent QC 시스템                    │
+│                                                                  │
+│  ┌─────────────────┐     ROS2 DDS      ┌──────────────────────┐ │
+│  │  Vision Sub PC  │ ◄───────────────► │      Main PC         │ │
+│  │                 │                   │                      │ │
+│  │ side_camera     │                   │ main_decision_node   │ │
+│  │ YOLOv8n 추론    │                   │ robot_task_manager   │ │
+│  │ 상태 분류       │                   │ doosan_control       │ │
+│  │                 │                   │ gripper_control      │ │
+│  └────────┬────────┘                   │ hmi_node (PyQt5)     │ │
+│           │                            └──────────┬───────────┘ │
+│           │ USB                                   │             │
+│  Side-view Camera                                 │ Doosan SDK  │
+│                                         ┌─────────┴──────────┐  │
+│                                         │   Doosan M0609     │  │
+│                                         │   협동로봇 암       │  │
+│                                         └─────────┬──────────┘  │
+│                                                   │             │
+│                                     Modbus TCP / digital I/O    │
+│                                         ┌─────────┴──────────┐  │
+│                                         │  OnRobot RG2       │  │
+│                                         │  그리퍼             │  │
+│                                         └────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
 ## 구성 요소
 
-| 구성 요소 | 역할 | 구현 패키지 |
-|---|---|---|
-| Vision Sub PC | 카메라 영상 입력, 시약 높이 추론 수행 | `vision_pkg` |
-| Main PC | ROS2 통신 수신, 상태 판단, 로봇 명령 생성, HMI 실행 | `robot_control_pkg`, `hmi_pkg` |
-| Doosan M0609 | 시약 보충, 폐기 이송, 정상 트레이 이송 수행 | `robot_control_pkg` (현재 mock) |
-| Camera System | Side-view 기반 3x1 시약통 높이 측정 | `vision_pkg` |
+| 구성 요소 | 역할 | 구현 |
+|-----------|------|------|
+| Side-view Camera | 시약통 3개 측면 영상 취득 | USB 카메라, CompressedImage 발행 |
+| Vision Sub PC | YOLOv8n 실시간 추론, 상태 분류 | `vision_pkg` (ROS2) |
+| Main PC | 판단 로직, 로봇 명령, HMI | `robot_control_pkg`, `hmi_pkg` (ROS2) |
+| Doosan M0609 | 보충/폐기/트레이 이송 실행 | Doosan DSR API (`movel`, `movej`) |
+| OnRobot RG2 | 시약통/트레이 파지 | Modbus TCP + Doosan digital I/O |
 
 ## 데이터 흐름
 
 ```
-Camera[Side-view Camera]
-  --> VisionPC[Vision Sub PC: side_camera_node]
-  --> liquid_height_detector_node (YOLOv8n: cup/height/hand)
-  --> tube_state_publisher_node (State 0/1/2/UNKNOWN 분류)
-  --|ROS2 Topic: /vision/tube_state|--> MainPC[Main PC: main_decision_node]
-  --> robot_task_manager_node
-  --> Robot[M0609 Collaborative Robot] (doosan_robot_control_node + gripper_control_node)
-
-MainPC --> HMI[HMI Dashboard: hmi_node]
-Robot --> Gripper[Gripper]
-Robot --> ReagentZone[Reagent Fill Zone: tube_X_refill_pose]
-Robot --> WasteZone[Waste Zone: waste_pose]
-Robot --> NormalZone[Normal Tray Zone: normal_tray_pose]
+Side-view Camera
+  → CompressedImage (/vision/side_image)
+  → YOLOv8n 추론 (cup / height / hand 클래스)
+  → 액체 높이 산출 (fill fraction × calibration)
+  → 상태 분류 (State 0: 부족 / 1: 정상 / 2: 과다 / -1: UNKNOWN)
+  → /vision/tube_state
+  → main_decision_node (안전 게이트: camera_ok / hand / force)
+  → /robot/start_task
+  → robot_task_manager_node (우선순위: 폐기 > 보충 > 이송)
+  → /robot/move_to_pose + /gripper/control
+  → M0609 + RG2 (실제 동작 수행)
+  → /vision/request_recheck
+  → 다음 사이클
 ```
 
-## 핵심 차별점
-
-단순 이미지 판별에서 그치지 않고, 판단 결과를 기반으로 협동로봇이 실제 후속 조치를 수행하는 하나의 자동화 파이프라인:
+## 안전 피드백 루프
 
 ```
-Camera Perception
-→ Liquid Height Estimation
-→ State Classification
-→ ROS2 Communication
-→ Robot Task Planning
-→ Refill / Disposal / Normal Transfer
-→ Recheck
+M0609 TCP 외력 측정 (GetToolForce, ~7Hz)
+  → force_norm (Float64) → HMI Force Monitor 탭 실시간 그래프
+  → force_norm > 20N
+    → /robot/force_detected = True
+    → 진행 중 동작 즉시 정지 (stop_event)
+    → HMI Force Alert 팝업
+    → 작업자 확인 → Start 버튼 → 재개
 ```
 
-이 흐름은 `main_decision_node`(반응형 트리거) ↔ `robot_task_manager_node`(우선순위 1개 작업 수행 후 recheck 요청)의 사이클이 반복되며 구현된다. 즉 한 번의 서비스 호출이 전체 시나리오를 끝내는 것이 아니라, recheck로 갱신된 `/vision/tube_state`가 다음 사이클의 입력이 되어 점진적으로 전체 트레이를 정상 상태로 수렴시킨다.
+## 핵심 설계 원칙
+
+1. **반응형 사이클**: 매 `/vision/tube_state` 수신마다 1건 처리 후 종료. Vision 파이프라인은 항상 병렬로 동작하므로 별도 recheck 루프 없이 자동 진행됨.
+
+2. **우선순위 처리**: 동일 사이클에 폐기·보충이 동시 존재해도 항상 폐기(State2) → 보충(State0) → 이송(All 1) 순서 보장.
+
+3. **다중 안전 게이트**: 카메라 단절, 손 감지, 외력 초과 각각 독립적으로 dispatch를 차단. 외력은 Start 버튼으로만 해제(자동 재개 없음).
+
+4. **트레이 3개 순차 이송**: tray_idx 0→1→2 순서. 충돌 회피 경유지(TRAY_TOOL_STAND_APPROACH_POSE, tool_approach_pose(0)) 포함.
+
+5. **런타임 파라미터 조정**: TCP 오프셋, 속도/가속도, 외력 임계값, Vision confidence 등을 HMI 시스템 관리자 탭에서 재시작 없이 변경 가능.
