@@ -492,6 +492,7 @@ class HMIDashboardApp(QDialog):
         self.input_admin_pw.returnPressed.connect(self._on_admin_login)
         self.btn_apply_robot_param.clicked.connect(self.on_apply_robot_param)
         self.btn_apply_tcp_admin.clicked.connect(self._on_apply_tcp)  # 2026-06-28 soo: TCP 적용
+        self.btn_apply_tcp_admin.setObjectName("admin_apply_btn")     # 2026-06-28 soo: 적용버튼 통일
 
         self.tube_widgets = [
             (self.tube0_color_box, self.tube0_status_label, self.tube0_val_label),
@@ -507,6 +508,12 @@ class HMIDashboardApp(QDialog):
         self._setup_vision_conf_ui()          # 2026-06-27 soo: 비전 confidence UI 초기화
         self._setup_vision_buffer_ui()        # 2026-06-27 soo: 추론 버퍼 UI 초기화
         self._setup_pose_move_tab()           # 2026-06-28 soo: 포즈 선택 이동 탭
+        # 2026-06-28 soo: 기능 미연결 껍데기 탭 제거 — 속도/가속도·페이로드·충돌 감지.
+        # (실제 속도/가속도 제어는 로봇 파라미터 탭의 m_velocity/m_acceleration/d_* 담당)
+        for _shell_tab in (self.tab_motion_speed, self.tab_motion_payload, self.tab_motion_collision):
+            _idx = self.tabWidget_motion.indexOf(_shell_tab)
+            if _idx >= 0:
+                self.tabWidget_motion.removeTab(_idx)
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -860,6 +867,7 @@ class HMIDashboardApp(QDialog):
             grid_d.addWidget(edit, row, 1)
             self._scalar_edits['doosan'][name] = edit
         btn_d = QPushButton("Doosan 파라미터 적용")
+        btn_d.setObjectName("admin_apply_btn")
         btn_d.setStyleSheet(apply_btn_style)
         btn_d.clicked.connect(self._on_apply_doosan_scalar)
         grid_d.addWidget(btn_d, len(_DOOSAN_SCALAR), 0, 1, 2)
@@ -908,6 +916,7 @@ class HMIDashboardApp(QDialog):
             grid_t.addWidget(edit, row, 1)
             self._scalar_edits['task'][name] = edit
         btn_t = QPushButton("Task 파라미터 적용")
+        btn_t.setObjectName("admin_apply_btn")
         btn_t.setStyleSheet(apply_btn_style)
         btn_t.clicked.connect(self._on_apply_task_scalar)
         grid_t.addWidget(btn_t, len(_TASK_SCALAR), 0, 1, 2)
@@ -956,12 +965,14 @@ class HMIDashboardApp(QDialog):
 
         pose_count = len(_all_pose_names(num_tubes=3, num_trays=3))
         btn_p = QPushButton("포즈 적용")
+        btn_p.setObjectName("admin_apply_btn")
         btn_p.setStyleSheet(apply_btn_style)
         btn_p.clicked.connect(self._on_apply_poses)
         grid_p.addWidget(btn_p, pose_count + 1, 0, 1, 7)
         layout.addWidget(grp_poses)
 
         self.btn_apply_robot_param.setText("전체 적용 (Doosan + Task + 포즈)")
+        self.btn_apply_robot_param.setObjectName("admin_apply_btn")
         layout.addWidget(self.btn_apply_robot_param)
         layout.addStretch()
 
@@ -1385,6 +1396,7 @@ class HMIDashboardApp(QDialog):
         lbl_model.setStyleSheet("font-weight: bold;")
         self.formLayout_vision.addRow(lbl_model, radio_widget)
 
+        self.btn_apply_vision_admin.setObjectName("admin_apply_btn")
         self.btn_apply_vision_admin.clicked.connect(self._on_apply_vision_conf)
 
     # -----------------------------------------------------------------
@@ -1524,6 +1536,7 @@ class HMIDashboardApp(QDialog):
         form.addRow("손 해제 연속 프레임", self.spin_hand_lost_frames)
 
         btn_apply = QPushButton("버퍼 적용")
+        btn_apply.setObjectName("admin_apply_btn")
         btn_apply.clicked.connect(self._on_apply_vision_buffer)
         form.addRow(btn_apply)
 
