@@ -74,9 +74,14 @@ class LiquidHeightDetectorNode(Node):
         self.declare_parameter("row_y_tolerance_px", 35.0)
         # end
 
-        # 오른쪽 성공 트레이 노이즈 차단용 ROI
+        # 오른쪽 성공 트레이 노이즈 차단용 ROI (cup/height)
         self.declare_parameter("roi_x_min_px", 0.0)
         self.declare_parameter("roi_x_max_px", 540.0)
+
+        # 로봇 팔이 화면 상단에서 hand로 오인식되는 것을 막기 위한 y축 하한.
+        # cy < hand_roi_y_min_px 인 박스는 hand 감지에서 제외한다.
+        # 640x480 기준 로봇 팔은 주로 y 0~250 에 위치.
+        self.declare_parameter("hand_roi_y_min_px", 250.0)
 
         self.yolo_imgsz = int(self.get_parameter("yolo_imgsz").value)
         self.yolo_iou_threshold = float(self.get_parameter("yolo_iou_threshold").value)
@@ -90,6 +95,7 @@ class LiquidHeightDetectorNode(Node):
         self.row_y_tolerance_px = float(self.get_parameter("row_y_tolerance_px").value)
         self.roi_x_min_px = float(self.get_parameter("roi_x_min_px").value)
         self.roi_x_max_px = float(self.get_parameter("roi_x_max_px").value)
+        self.hand_roi_y_min_px = float(self.get_parameter("hand_roi_y_min_px").value)
 
         self.hand_detect_consecutive_frames = int(
             self.get_parameter("hand_detect_consecutive_frames").value
@@ -202,6 +208,8 @@ class LiquidHeightDetectorNode(Node):
                 self.hand_detect_consecutive_frames = int(p.value.integer_value)
             elif p.name == 'hand_lost_consecutive_frames':
                 self.hand_lost_consecutive_frames = int(p.value.integer_value)
+            elif p.name == 'hand_roi_y_min_px':
+                self.hand_roi_y_min_px = float(p.value.double_value)
             elif p.name == 'model_path':
                 # 2026-06-27 soo: HMI 모델 전환 — YOLO 재로딩
                 new_path = p.value.string_value
@@ -308,9 +316,12 @@ class LiquidHeightDetectorNode(Node):
         if self.yolo_enabled:
             self._publish_yolo_overlay(frame, cup_boxes, height_boxes, hand_boxes)
 
-        # ROI 필터: cup/height만 적용 (hand는 전체 화면 커버)
+        # ROI 필터
         cup_boxes = [b for b in cup_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
         height_boxes = [b for b in height_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
+        # hand: x ROI 없음, y축 하한만 적용 (상단 로봇 팔 오인식 방지)
+        # 오버레이에는 원본 hand_boxes가 이미 발행됐으므로 필터링해도 표시에는 영향 없음
+        hand_boxes = [b for b in hand_boxes if (b.y1 + b.y2) / 2.0 >= self.hand_roi_y_min_px]
 
         hand_seen_now = len(hand_boxes) > 0
         was_detected = self.hand_detected_state

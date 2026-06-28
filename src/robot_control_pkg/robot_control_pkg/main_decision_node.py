@@ -11,7 +11,7 @@ re-evaluated here and may trigger the next tier's task.
 """
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Int32
 from std_srvs.srv import SetBool
 
 from interfaces.msg import TubeState
@@ -30,6 +30,9 @@ class MainDecisionNode(Node):
         self.hand_detected = False
         self.force_detected = False
         self.tray_transferred = False
+        # start_task 실행 도중 /robot/tray_advanced 수신 여부.
+        # on_start_task_done이 tray_transferred=True를 덮어쓰지 않도록 막는 데 사용.
+        self._tray_advanced_during_task = False
         # 손 감지 시 자동 비상정지 반응의 런타임 on/off. 끄더라도 hand_detected
         # 구독/표시는 계속 갱신되고, stop_task 호출과 task 보류만 건너뜀.
         self.hand_safety_enabled = True
@@ -45,6 +48,9 @@ class MainDecisionNode(Node):
         self.create_subscription(Bool, "/vision/camera_status", self.on_camera_status, 10)
         self.create_subscription(Bool, "/vision/hand_detected", self.on_hand_detected, 10)
         self.create_subscription(Bool, "/robot/force_detected", self.on_force_detected, 10)
+        # robot_task_manager_node가 _advance_tray() 시 발행 → tray_transferred 플래그 리셋.
+        # 새 트레이가 all_normal이어도 transfer_tray()가 다시 호출되도록 허용함.
+        self.create_subscription(Int32, "/robot/tray_advanced", self.on_tray_advanced, 10)
 
         # HMI 등 다른 클라이언트가 토글하고 현재 상태를 구독할 수 있게 노출
         self.hand_safety_enabled_pub = self.create_publisher(
@@ -93,6 +99,11 @@ class MainDecisionNode(Node):
         response.message = f"system_running set to {self.system_running}"
         self.get_logger().warn(response.message)
         return response
+
+    def on_tray_advanced(self, msg: Int32):
+        self.tray_transferred = False
+        self._tray_advanced_during_task = True
+        self.get_logger().info(f"Tray advanced to idx={msg.data} — tray_transferred reset")
 
     def on_camera_status(self, msg: Bool):
         self.camera_ok = msg.data
@@ -163,8 +174,12 @@ class MainDecisionNode(Node):
             return
 
         self.get_logger().info(f"start_task result: success={result.success} message={result.message}")
-        if was_all_normal and result.success:
+        if was_all_normal and result.success and not self._tray_advanced_during_task:
+            # tray advance가 없었을 때만 세움 (같은 트레이 재전송 방지).
+            # advance가 있었으면 on_tray_advanced가 이미 tray_transferred=False로 리셋했고,
+            # 여기서 True로 덮으면 새 트레이의 all_normal이 영원히 차단된다.
             self.tray_transferred = True
+        self._tray_advanced_during_task = False
 
 
 def main(args=None):

@@ -16,6 +16,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_msgs.msg import Int32
 from std_srvs.srv import Trigger
 
 from interfaces.msg import RobotStatus, TubeState
@@ -129,6 +130,9 @@ class RobotTaskManagerNode(Node):
         self.reset_slot_anchors_client = self.create_client(
             Trigger, '/vision/reset_slot_anchors', callback_group=cb_group
         )
+        # 트레이 전환 완료 알림: main_decision_node가 구독해 tray_transferred 플래그를 리셋함.
+        # 새 tray_idx 값을 실어 보내서 수신 측에서 로그 출력에 활용 가능.
+        self.tray_advanced_pub = self.create_publisher(Int32, '/robot/tray_advanced', 10)
         self.reset_handled_slots_client = self.create_client(
             Trigger, '/vision/reset_handled_slots', callback_group=cb_group
         )
@@ -508,6 +512,13 @@ class RobotTaskManagerNode(Node):
         self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_lift_pose(self.tray_idx), 'move', status)
+        if self.tray_idx >= 2:
+            # 2번 트레이: lift 직후 tool_approach_pose(0)로 먼저 빠져나와
+            # 성공 존에 이미 놓인 1번 트레이와의 충돌을 회피한다.
+            # 그 다음 TRAY_TOOL_STAND_APPROACH_POSE를 경유해 안전 높이 확보 후 성공 존 진입.
+            self.move(tray_transfer_tool_approach_pose(0), 'move', status)
+        # tray_idx=0,1: 뒤쪽 트레이 컵 충돌 방지를 위해 툴 스탠드 위치 경유
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
 
         self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move', status)
         self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray', status)
@@ -531,6 +542,7 @@ class RobotTaskManagerNode(Node):
             return
 
         self.tray_idx += 1
+        self.tray_advanced_pub.publish(Int32(data=self.tray_idx))
         for client, request in (
             (self.reset_slot_anchors_client, Trigger.Request()),
             (self.reset_handled_slots_client, Trigger.Request()),
