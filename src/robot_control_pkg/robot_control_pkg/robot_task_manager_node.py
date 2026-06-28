@@ -508,6 +508,9 @@ class RobotTaskManagerNode(Node):
         self.move(tray_transfer_tool_preinsert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_tool_insert_pose(self.tray_idx), 'down_tray', status)
         self.move(tray_transfer_lift_pose(self.tray_idx), 'move', status)
+        # 리프트 후 성공 존으로 직행하면 뒤쪽 트레이의 컵과 충돌.
+        # 트레이 툴 스탠드 위치를 경유해서 안전하게 우회한다.
+        self.move(TRAY_TOOL_STAND_APPROACH_POSE, 'move', status)
 
         self.move(tray_transfer_success_approach_pose(self.tray_idx), 'move', status)
         self.move(tray_transfer_success_place_pose(self.tray_idx), 'down_tray', status)
