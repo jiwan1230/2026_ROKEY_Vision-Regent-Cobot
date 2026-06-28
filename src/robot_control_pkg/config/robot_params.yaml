@@ -36,6 +36,10 @@ doosan_robot_control_node:
     pour_ry_offset: -45.0
     grip_z_offset: -120.0
 
+    # 가상 TCP offset [x, y, z, rx(A), ry(B), rz(C)] (mm, deg).
+    # HMI 관리자 탭 → TCP 좌표에서 런타임 조회/변경 (로봇 정지+IDLE 시에만).
+    tcp_offset: [0.0, 0.0, 200.0, 0.0, 0.0, 0.0]
+
     pose_names: [
       "home_pose",
       "waste_approach_pose",
