@@ -4,7 +4,7 @@
 # 변경 이력 (Change Log)
 # -----------------------------------------------------------------------------
 # 2026-06-24  soo  초기 마이그레이션
-#                   - B-2_project → B-2_project_git (hmi_part 브랜치) 이전
+#                   - B-2_project B-2_project_git (hmi_part 브랜치) 이전
 #                   - CompressedImage(JPEG) 구독으로 변경 (QoS BEST_EFFORT 맞춤)
 #                   - 외부 QTabWidget 래퍼 제거, uic.loadUi(self) 직접 로드
 #                   - .ui 좌표 설정 위젯에 ROS 파라미터 초기값 채우기
@@ -17,7 +17,7 @@
 #
 # 2026-06-24  soo  로봇 운전 상태 LED 인디케이터 추가
 #                   - STOP(빨강) / RUN(초록) / ERROR(노랑) 3색 LED QLabel
-#                   - robot_status 메시지 파싱 → LED·텍스트 색상 실시간 갱신
+#                   - robot_status 메시지 파싱 LED·텍스트 색상 실시간 갱신
 #
 # 2026-06-24  soo  UI 언어 정리
 #                   - 대시보드 전체 영어로 통일, 이모지 제거
@@ -28,7 +28,7 @@
 #                   - Joint Mode: J1~J6 각도 조그 (+/- 버튼, 스텝 콤보박스)
 #                   - TCP Mode: X/Y/Z(mm) · A/B/C(deg) 위치 조그
 #                   - JOG Speed 슬라이더(1~100%), STOP 버튼
-#                   - 메인 QTabWidget 이름 tabWidget → JOG 변경에 따른 참조 수정
+#                   - 메인 QTabWidget 이름 tabWidget JOG 변경에 따른 참조 수정
 #
 # 2026-06-27  soo  로봇 파라미터 적용 안전성 개선
 #                   - 파라미터 범위 검증 추가 (_validate_params): 범위 초과 시 적용 차단
@@ -41,12 +41,12 @@
 #                   - tab_motion_vision: 바운딩박스 신뢰도(spin_vision_confidence) +
 #                     높이 신뢰도(spin_vision_height_conf) 동적 추가
 #                   - 로그인 시 GetParameters로 초기값 로드 (_load_vision_params)
-#                   - btn_apply_vision_admin → SetParameters 두 노드에 동시 적용
+#                   - btn_apply_vision_admin SetParameters 두 노드에 동시 적용
 #
 # 2026-06-27  soo  좌표 자동계산 로직 개선 + waste_rotate 포즈 추가
-#                   - _CALC_PARAMS 4개 → 9개: work_z_offset, pour_tube_offset,
+#                   - _CALC_PARAMS 4개 9개: work_z_offset, pour_tube_offset,
 #                     pour_z_offset, pour_ry_offset, grip_z_offset 추가
-#                   - _recalc_derived_poses 재작성: approach 1개 기준 → 45개 전체 파생
+#                   - _recalc_derived_poses 재작성: approach 1개 기준 45개 전체 파생
 #                     (기존: approach/work/pour 각각 독립 base / 신규: approach→work/pour/grip 오프셋)
 #                   - base_pose_keys를 approach 2개만으로 축소
 #                   - _all_pose_names()에 waste_rotate_* 4개 추가
@@ -72,7 +72,7 @@ from PyQt5.QtWidgets import (
     QApplication, QDialog, QMessageBox, QPushButton,
     QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
     QDoubleSpinBox, QSpinBox, QFormLayout, QRadioButton, QButtonGroup, QHBoxLayout,
-    QComboBox,
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -152,11 +152,11 @@ _CALC_PARAMS = [
     ('tray_gap',          100.0),
     ('tube_crood',        1),
     ('tray_crood',        0),
-    ('work_z_offset',    -105.0),   # approach → work Z 차이
-    ('pour_tube_offset',  35.0),    # approach → pour 튜브축 방향 차이
-    ('pour_z_offset',    -45.0),    # approach → pour Z 차이
-    ('pour_ry_offset',   -45.0),    # approach → pour RY 차이
-    ('grip_z_offset',   -120.0),    # approach → grip Z 차이 (dispose)
+    ('work_z_offset',    -105.0),   # approach work Z 차이
+    ('pour_tube_offset',  35.0),    # approach pour 튜브축 방향 차이
+    ('pour_z_offset',    -45.0),    # approach pour Z 차이
+    ('pour_ry_offset',   -45.0),    # approach pour RY 차이
+    ('grip_z_offset',   -120.0),    # approach grip Z 차이 (dispose)
 ]
 # robot_task_manager_node에 declare된 스칼라 파라미터
 _TASK_SCALAR = [
@@ -388,7 +388,7 @@ class IntegratedHMINode(Node):
         req.parameters = params
         return self.set_param_tube_state_client.call_async(req)
 
-    # 2026-06-28 soo: 선택 포즈로 이동 (move_type='move' → 노드가 movel 실행)
+    # 2026-06-28 soo: 선택 포즈로 이동 (move_type='move' 노드가 movel 실행)
     def call_move_to_pose(self, pose_name: str, move_type: str = 'move'):
         req = MoveToPose.Request()
         req.pose_name = pose_name
@@ -514,6 +514,7 @@ class HMIDashboardApp(QDialog):
             _idx = self.tabWidget_motion.indexOf(_shell_tab)
             if _idx >= 0:
                 self.tabWidget_motion.removeTab(_idx)
+        self._setup_sysinfo_dev_env()         # 2026-06-28 soo: 시스템 정보 개발 환경 표
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -553,7 +554,7 @@ class HMIDashboardApp(QDialog):
     # 운영 버튼 콜백
     # -----------------------------------------------------------------
     def on_start(self):
-        # 외력 감지 팝업이 떠있으면 START로 래치 해제 → 팝업 닫힘.
+        # 외력 감지 팝업이 떠있으면 START로 래치 해제 팝업 닫힘.
         # 이후 새로운 외력이 감지되면(상승 에지) 래치가 다시 세워져 팝업이 다시 뜸.
         if self._force_dialog and self._force_dialog.isVisible():
             self._force_dialog.close()
@@ -715,7 +716,7 @@ class HMIDashboardApp(QDialog):
         if detected and not self._force_shown:
             self._force_shown = True
             self._force_dialog = QMessageBox(self)
-            self._force_dialog.setWindowTitle("⚠ 외력 감지!")
+            self._force_dialog.setWindowTitle("외력 감지!")
             self._force_dialog.setText(
                 "로봇에 예상치 못한 외력이 감지되었습니다.\n\n"
                 "로봇 상태를 확인한 후\n"
@@ -725,7 +726,7 @@ class HMIDashboardApp(QDialog):
             self._force_dialog.setStandardButtons(QMessageBox.Ok)
             self._force_dialog.setWindowModality(Qt.NonModal)
             self._force_dialog.show()
-            self.log("⚠ 외력 감지! 담당자 확인 후 START를 눌러 재개하세요.")
+            self.log("외력 감지! 담당자 확인 후 START를 눌러 재개하세요.")
         elif not detected and self._force_shown:
             # START 버튼으로 래치가 해제된 경우 - on_start에서 이미 dialog를 닫았으므로
             # _force_shown 플래그만 정리.
@@ -736,7 +737,7 @@ class HMIDashboardApp(QDialog):
             self._grip_fail_shown = True
             self.lbl_grip_fail_alert.setVisible(True)
             self.btn_clear_fail.setVisible(True)
-            self.log("⚠ 그립 실패 감지됨")
+            self.log("그립 실패 감지됨")
 
     def _update_vision_log(self):
         if not self.node.vision_log_messages:
@@ -1142,7 +1143,7 @@ class HMIDashboardApp(QDialog):
 
         for t in range(3):
             for u in range(3):
-                # ① gap 적용 → 9개 approach 위치
+                # ① gap 적용 9개 approach 위치
                 refill_ap = list(refill_base)
                 refill_ap[tray_ax] += t * tray_gap
                 refill_ap[tube_ax] -= u * tube_gap
@@ -1364,7 +1365,7 @@ class HMIDashboardApp(QDialog):
 
         # 2026-06-27 soo: YOLO 모델 라디오 버튼 — weights 디렉토리 스캔
         self._model_btn_group = QButtonGroup(self)
-        self._model_radio_map = {}  # 절대경로 → QRadioButton
+        self._model_radio_map = {}  # 절대경로 QRadioButton
 
         try:
             weights_dir = os.path.join(
@@ -1860,7 +1861,7 @@ class HMIDashboardApp(QDialog):
                 True, f"파라미터 {total_applied}개 전체 적용 완료")
 
     # =================================================================
-    # 2026-06-28 soo: TCP 좌표 설정 (관리자 → 모션제어 → 🎯 TCP 좌표)
+    # 2026-06-28 soo: TCP 좌표 설정 (관리자 모션제어 TCP 좌표)
     #   - 초기값: doosan_robot_control_node의 tcp_offset 파라미터를 로그인 시 로드
     #   - 적용:   SetParameters(tcp_offset) — 로봇 정지(IDLE)일 때만 허용
     #   - 노드 쪽에도 동일 가드가 있어 HMI 우회 시에도 거부됨 (이중 안전)
@@ -1887,9 +1888,9 @@ class HMIDashboardApp(QDialog):
             e.setEnabled(allowed)
         self.btn_apply_tcp_admin.setEnabled(allowed)
         if allowed:
-            self.btn_apply_tcp_admin.setText("💾 TCP 좌표 로봇에 적용")
+            self.btn_apply_tcp_admin.setText("TCP 좌표 로봇에 적용")
         else:
-            self.btn_apply_tcp_admin.setText("⛔ 로봇 동작 중 — 정지(IDLE) 시 설정 가능")
+            self.btn_apply_tcp_admin.setText("로봇 동작 중 — 정지(IDLE) 시 설정 가능")
 
     def _load_tcp_params(self):
         if self.node.get_param_doosan_client.service_is_ready():
@@ -1967,9 +1968,9 @@ class HMIDashboardApp(QDialog):
             self._apply_complete_signal.emit(True, f"TCP 좌표 적용 완료: {vals}")
 
     # =================================================================
-    # 2026-06-28 soo: 포즈 선택 이동 탭 (관리자 → 모션제어 → 🤖 포즈 이동)
-    #   - 콤보박스로 포즈 이름 선택 → 노드의 현재 좌표(poses.<name>)를 읽어 표시
-    #   - '이동' 버튼 → /robot/move_to_pose(name, 'move') → 노드가 movel 실행
+    # 2026-06-28 soo: 포즈 선택 이동 탭 (관리자 모션제어 포즈 이동)
+    #   - 콤보박스로 포즈 이름 선택 노드의 현재 좌표(poses.<name>)를 읽어 표시
+    #   - '이동' 버튼 /robot/move_to_pose(name, 'move') 노드가 movel 실행
     #   - 안전: 정지(IDLE)일 때만 이동 / 확인 팝업 / 이동 중 버튼 비활성
     #   - doosan 노드·기존 기능 무수정, HMI에 추가만
     # =================================================================
@@ -1994,18 +1995,18 @@ class HMIDashboardApp(QDialog):
 
         v.addWidget(grp)
 
-        self.btn_pose_move = QPushButton("➡ 선택 포즈로 이동 (movel)")
+        self.btn_pose_move = QPushButton("선택 포즈로 이동 (movel)")
         self.btn_pose_move.setAutoDefault(False)
         self.btn_pose_move.setDefault(False)
         self.btn_pose_move.clicked.connect(self._on_pose_move_clicked)
         v.addWidget(self.btn_pose_move)
 
-        note = QLabel("⚠ 로봇이 정지(IDLE) 상태일 때만 이동 가능. 이동 시 실물 로봇이 movel로 움직입니다.")
+        note = QLabel("로봇이 정지(IDLE) 상태일 때만 이동 가능. 이동 시 실물 로봇이 movel로 움직입니다.")
         note.setWordWrap(True)
         v.addWidget(note)
         v.addStretch()
 
-        self.tabWidget_motion.addTab(tab, "🤖 포즈 이동")
+        self.tabWidget_motion.addTab(tab, "포즈 이동")
         self.combo_pose_move.currentTextChanged.connect(self._on_pose_move_selected)
         if self.combo_pose_move.count() > 0:
             self._on_pose_move_selected(self.combo_pose_move.currentText())
@@ -2043,11 +2044,11 @@ class HMIDashboardApp(QDialog):
         allowed = self._is_robot_idle_for_tcp() and not self._pose_move_in_flight
         self.btn_pose_move.setEnabled(allowed)
         if self._pose_move_in_flight:
-            self.btn_pose_move.setText("⏳ 이동 중...")
+            self.btn_pose_move.setText("이동 중...")
         elif allowed:
-            self.btn_pose_move.setText("➡ 선택 포즈로 이동 (movel)")
+            self.btn_pose_move.setText("선택 포즈로 이동 (movel)")
         else:
-            self.btn_pose_move.setText("⛔ 로봇 동작 중 — 정지(IDLE) 시 이동 가능")
+            self.btn_pose_move.setText("로봇 동작 중 — 정지(IDLE) 시 이동 가능")
 
     def _on_pose_move_clicked(self):
         if not self._is_robot_idle_for_tcp():
@@ -2084,6 +2085,49 @@ class HMIDashboardApp(QDialog):
             self.log_signal.emit(f"포즈 이동 결과: success={result.success} msg={result.message}")
         except Exception as e:
             self.log_signal.emit(f"포즈 이동 오류: {e}")
+
+    # =================================================================
+    # 2026-06-28 soo: 시스템 정보 탭 — 개발 환경 표 (Hardware / Software)
+    # =================================================================
+    def _make_info_table(self, headers, rows):
+        t = QTableWidget(len(rows), 2)
+        t.setHorizontalHeaderLabels(headers)
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        t.setSelectionMode(QAbstractItemView.NoSelection)
+        t.setFocusPolicy(Qt.NoFocus)
+        t.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        t.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        t.verticalHeader().setDefaultSectionSize(34)
+        for r, (k, v) in enumerate(rows):
+            t.setItem(r, 0, QTableWidgetItem(k))
+            t.setItem(r, 1, QTableWidgetItem(v))
+        hh = t.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        t.setFixedHeight(34 * len(rows) + 38)
+        return t
+
+    def _setup_sysinfo_dev_env(self):
+        grp = QGroupBox("개발 환경")
+        h = QVBoxLayout(grp)   # 2026-06-28 soo: 세로 배치 — Software 표를 Hardware 아래로
+        h.setSpacing(16)
+        hw = self._make_info_table(["Hardware", "구성"], [
+            ("협동로봇", "Doosan Robotics M0609"),
+            ("카메라", "Side-view USB Camera 1대"),
+            ("Vision PC", "YOLOv8n CPU/GPU 추론 가능 노트북"),
+            ("Main PC", "ROS2 Humble + HMI 실행"),
+        ])
+        sw = self._make_info_table(["Software", "구성"], [
+            ("OS", "Ubuntu 22.04"),
+            ("Robot Framework", "ROS2 Humble + DSR_MSGS2"),
+            ("Vision AI", "YOLOv8n, OpenCV"),
+            ("HMI / 통신", "PyQt5, ROS2 Topic/Service, Modbus TCP"),
+        ])
+        h.addWidget(hw)
+        h.addWidget(sw)
+        # 시스템 정보 그룹 아래(맨 끝 스페이서 앞)에 삽입
+        self.vl_tab_sysinfo.insertWidget(self.vl_tab_sysinfo.count() - 1, grp)
 
 
 def main(args=None):

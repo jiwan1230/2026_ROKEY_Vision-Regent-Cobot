@@ -205,3 +205,22 @@ QPushButton#btn_admin_login {
 }
 QPushButton#btn_admin_login:hover { background-color: #1976D2; }
 QPushButton#btn_admin_login:pressed { background-color: #0D47A1; }
+
+/* 13. 시스템 정보 — 개발 환경 표 */
+QTableWidget {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    gridline-color: #eef2f6;
+}
+QHeaderView::section {
+    background-color: #1565C0;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 6px 8px;
+    border: none;
+}
+QTableWidget::item {
+    padding: 4px 8px;
+    color: #334155;
+}

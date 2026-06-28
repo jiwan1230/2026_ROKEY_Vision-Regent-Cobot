@@ -21,7 +21,7 @@
      </property>
      <widget class="QWidget" name="tab_dashboard">
       <attribute name="title">
-       <string>📺 운영 대시보드</string>
+       <string>운영 대시보드</string>
       </attribute>
       <widget class="QLabel" name="videoLabel">
        <property name="geometry">
@@ -226,7 +226,7 @@
          <string>background-color:#c0392b; color:white; font-weight:bold; font-size:14px; border-radius:4px; padding-left:8px;</string>
         </property>
         <property name="text">
-         <string>⚠ GRIP FAILED - 그리퍼가 물체를 잡지 못했습니다</string>
+         <string>GRIP FAILED - 그리퍼가 물체를 잡지 못했습니다</string>
         </property>
        </widget>
        <widget class="QPushButton" name="btn_clear_fail">
@@ -356,7 +356,7 @@
          </rect>
         </property>
         <property name="text">
-         <string>🎯 YOLO 추론 OFF</string>
+         <string>YOLO 추론 OFF</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -722,7 +722,7 @@
      </widget>
           <widget class="QWidget" name="tab_admin">
       <attribute name="title">
-       <string>🔐 시스템 관리자</string>
+       <string>시스템 관리자</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_admin">
        <property name="spacing">
@@ -1021,7 +1021,7 @@
              </property>
              <widget class="QWidget" name="tab_admin_sysinfo">
               <attribute name="title">
-               <string>📋 시스템 정보</string>
+               <string>시스템 정보</string>
               </attribute>
               <layout class="QVBoxLayout" name="vl_tab_sysinfo">
                <property name="spacing">
@@ -1067,14 +1067,14 @@
                    <widget class="QLabel" name="lbl_si_node">
                     <property name="styleSheet"><string>font-weight: bold;</string></property>
                     <property name="text">
-                     <string>ROS 노드 이름:</string>
+                     <string>시스템 이름:</string>
                     </property>
                    </widget>
                   </item>
                   <item row="0" column="1">
                    <widget class="QLabel" name="val_si_node">
      <property name="text">
-                     <string>hmi_node</string>
+                     <string>Vision AI Reagent QC</string>
                     </property>
                    </widget>
                   </item>
@@ -1082,14 +1082,14 @@
                    <widget class="QLabel" name="lbl_si_version">
                     <property name="styleSheet"><string>font-weight: bold;</string></property>
                     <property name="text">
-                     <string>HMI 버전:</string>
+                     <string>시스템 버전:</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
                    <widget class="QLabel" name="val_si_version">
      <property name="text">
-                     <string>v1.0.0 (2026-06-24)</string>
+                     <string>v2.5.1 (2026-06-23 ~ 2026-06-28)</string>
                     </property>
                    </widget>
                   </item>
@@ -1143,7 +1143,7 @@
              </widget>
              <widget class="QWidget" name="tab_admin_motion">
               <attribute name="title">
-               <string>🤖 모션 제어 설정</string>
+               <string>모션 제어 설정</string>
               </attribute>
               <layout class="QVBoxLayout" name="vl_tab_motion">
                <property name="spacing">
@@ -1168,7 +1168,7 @@
                  </property>
                  <widget class="QWidget" name="tab_motion_speed">
                   <attribute name="title">
-                   <string>⚡ 속도 / 가속도</string>
+                   <string>속도 / 가속도</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_motion_speed">
                    <property name="spacing">
@@ -1372,7 +1372,7 @@
                       <string>background-color: #1565C0; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
                      </property>
                      <property name="text">
-                      <string>💾 속도 / 가속도 적용</string>
+                      <string>속도 / 가속도 적용</string>
                      </property>
                     </widget>
                    </item>
@@ -1393,7 +1393,7 @@
                  </widget>
                  <widget class="QWidget" name="tab_motion_payload">
                   <attribute name="title">
-                   <string>⚖️ 페이로드 설정</string>
+                   <string>페이로드 설정</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_motion_payload">
                    <property name="spacing">
@@ -1570,7 +1570,7 @@
                       <string>background-color: #6A1B9A; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
                      </property>
                      <property name="text">
-                      <string>💾 페이로드 적용</string>
+                      <string>페이로드 적용</string>
                      </property>
                     </widget>
                    </item>
@@ -1591,7 +1591,7 @@
                  </widget>
                  <widget class="QWidget" name="tab_motion_collision">
                   <attribute name="title">
-                   <string>🛡️ 충돌 감지</string>
+                   <string>충돌 감지</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_motion_collision">
                    <property name="spacing">
@@ -1696,7 +1696,7 @@
                       <string>background-color: #B71C1C; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
                      </property>
                      <property name="text">
-                      <string>💾 충돌 감지 설정 적용</string>
+                      <string>충돌 감지 설정 적용</string>
                      </property>
                     </widget>
                    </item>
@@ -1717,7 +1717,7 @@
                  </widget>
                  <widget class="QWidget" name="tab_motion_tcp">
                   <attribute name="title">
-                   <string>🎯 TCP 좌표</string>
+                   <string>TCP 좌표</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_motion_tcp">
                    <property name="spacing">
@@ -1942,7 +1942,7 @@
                       <string>background-color: #1565C0; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
                      </property>
                      <property name="text">
-                      <string>💾 TCP 좌표 로봇에 적용</string>
+                      <string>TCP 좌표 로봇에 적용</string>
                      </property>
                     </widget>
                    </item>
@@ -1963,7 +1963,7 @@
                  </widget>
                  <widget class="QWidget" name="tab_motion_vision">
                   <attribute name="title">
-                   <string>📷 Vision 파라미터</string>
+                   <string>Vision 파라미터</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_motion_vision">
                    <property name="spacing">
@@ -2129,7 +2129,7 @@
                       <string>background-color: #2E7D32; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string>
                      </property>
                      <property name="text">
-                      <string>💾 Vision 파라미터 적용</string>
+                      <string>Vision 파라미터 적용</string>
                      </property>
                     </widget>
                    </item>
@@ -2150,7 +2150,7 @@
                  </widget>
                  <widget class="QWidget" name="tab_motion_robot_param">
                   <attribute name="title">
-                   <string>📋 로봇 파라미터</string>
+                   <string>로봇 파라미터</string>
                   </attribute>
                   <layout class="QVBoxLayout" name="vl_tab_robot_param">
                    <property name="spacing"><number>0</number></property>
@@ -3391,7 +3391,7 @@
                       <widget class="QPushButton" name="btn_apply_robot_param">
                        <property name="minimumSize"><size><width>0</width><height>44</height></size></property>
                        <property name="styleSheet"><string>background-color: #E65100; color: white; font-size: 15px; font-weight: bold; border-radius: 6px;</string></property>
-                       <property name="text"><string>💾 로봇 파라미터 전체 적용</string></property>
+                       <property name="text"><string>로봇 파라미터 전체 적용</string></property>
                       </widget>
                      </item>
                      <item>
