@@ -30,6 +30,9 @@ class MainDecisionNode(Node):
         self.hand_detected = False
         self.force_detected = False
         self.tray_transferred = False
+        # start_task 실행 도중 /robot/tray_advanced 수신 여부.
+        # on_start_task_done이 tray_transferred=True를 덮어쓰지 않도록 막는 데 사용.
+        self._tray_advanced_during_task = False
         # 손 감지 시 자동 비상정지 반응의 런타임 on/off. 끄더라도 hand_detected
         # 구독/표시는 계속 갱신되고, stop_task 호출과 task 보류만 건너뜀.
         self.hand_safety_enabled = True
@@ -99,6 +102,7 @@ class MainDecisionNode(Node):
 
     def on_tray_advanced(self, msg: Int32):
         self.tray_transferred = False
+        self._tray_advanced_during_task = True
         self.get_logger().info(f"Tray advanced to idx={msg.data} — tray_transferred reset")
 
     def on_camera_status(self, msg: Bool):
@@ -170,8 +174,12 @@ class MainDecisionNode(Node):
             return
 
         self.get_logger().info(f"start_task result: success={result.success} message={result.message}")
-        if was_all_normal and result.success:
+        if was_all_normal and result.success and not self._tray_advanced_during_task:
+            # tray advance가 없었을 때만 세움 (같은 트레이 재전송 방지).
+            # advance가 있었으면 on_tray_advanced가 이미 tray_transferred=False로 리셋했고,
+            # 여기서 True로 덮으면 새 트레이의 all_normal이 영원히 차단된다.
             self.tray_transferred = True
+        self._tray_advanced_during_task = False
 
 
 def main(args=None):
