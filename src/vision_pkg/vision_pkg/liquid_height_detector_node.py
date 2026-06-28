@@ -321,7 +321,7 @@ class LiquidHeightDetectorNode(Node):
         height_boxes = [b for b in height_boxes if self.roi_x_min_px <= b.cx <= self.roi_x_max_px]
         # hand: x ROI 없음, y축 하한만 적용 (상단 로봇 팔 오인식 방지)
         # 오버레이에는 원본 hand_boxes가 이미 발행됐으므로 필터링해도 표시에는 영향 없음
-        hand_boxes = [b for b in hand_boxes if b.cy >= self.hand_roi_y_min_px]
+        hand_boxes = [b for b in hand_boxes if (b.y1 + b.y2) / 2.0 >= self.hand_roi_y_min_px]
 
         hand_seen_now = len(hand_boxes) > 0
         was_detected = self.hand_detected_state
