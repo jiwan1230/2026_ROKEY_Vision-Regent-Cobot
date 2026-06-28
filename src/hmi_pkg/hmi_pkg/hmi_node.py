@@ -61,7 +61,7 @@ import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, String, Float64
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 # 2026-06-24 soo: side_image CompressedImage 구독으로 변경 (publisher QoS 맞춤)
 from sensor_msgs.msg import CompressedImage
@@ -76,6 +76,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
+import matplotlib
+matplotlib.use('Qt5Agg')
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 # 2026-06-28 soo: 외관 테마는 qt_material 대신 커스텀 QSS(ui/clean_light.qss)로 적용.
 # (main()에서 app.setStyleSheet으로 로드 — 기능 로직과 무관한 스타일 전용)
@@ -223,6 +227,7 @@ class IntegratedHMINode(Node):
         self.grip_failed = False
         self.system_running = False
         self.force_detected = False
+        self.force_norm = 0.0          # /robot/force_norm 최신값 (N)
         # vision_pkg가 /vision/log로 보내는 사람이 읽을 이벤트 문장들. 새로 들어오는
         # 만큼만 _refresh_dashboard에서 꺼내가도록 리스트로 쌓아두기만 함 (Qt 위젯은
         # ROS 스핀 스레드가 아니라 GUI 스레드에서만 만져야 해서 여기서 직접 안 그림).
@@ -255,6 +260,7 @@ class IntegratedHMINode(Node):
         self.create_subscription(Bool, '/gripper/grip_failed', self._on_grip_failed, 10)
         self.create_subscription(Bool, '/robot/system_running', self._on_system_running, 10)
         self.create_subscription(Bool, '/robot/force_detected', self._on_force_detected, 10)
+        self.create_subscription(Float64, '/robot/force_norm', self._on_force_norm, 10)
         self.create_subscription(String, '/vision/log', self._on_vision_log, 10)
 
         self.stop_task_client = self.create_client(StopTask, "/robot/stop_task")
@@ -314,6 +320,7 @@ class IntegratedHMINode(Node):
     def _on_grip_failed(self, msg): self.grip_failed = msg.data
     def _on_system_running(self, msg): self.system_running = msg.data
     def _on_force_detected(self, msg): self.force_detected = msg.data
+    def _on_force_norm(self, msg):     self.force_norm = msg.data
 
     def _on_vision_log(self, msg):
         self.vision_log_messages.append(msg.data)
@@ -418,6 +425,7 @@ class HMIDashboardApp(QDialog):
     _update_feature_btn_signal    = pyqtSignal(object, bool)    # (btn, on) — 서비스 실패 시 롤백용
     _tcp_params_ready             = pyqtSignal(object)          # tcp_offset 6개 값
     _pose_move_values_ready       = pyqtSignal(object)          # 선택 포즈 6개 좌표값
+    force_norm_signal             = pyqtSignal(float)           # /robot/force_norm 실시간 값
 
     def __init__(self, node: IntegratedHMINode):
         super().__init__()
@@ -515,6 +523,7 @@ class HMIDashboardApp(QDialog):
             if _idx >= 0:
                 self.tabWidget_motion.removeTab(_idx)
         self._setup_sysinfo_dev_env()         # 2026-06-28 soo: 시스템 정보 개발 환경 표
+        self._setup_force_graph()             # 외력 실시간 그래프 (대시보드 하단)
         self.log("PyQt HMI System initialized.")
 
         self.timer = QTimer(self)
@@ -818,6 +827,8 @@ class HMIDashboardApp(QDialog):
         self._update_tcp_gate()
         # 2026-06-28 soo: 포즈 이동 버튼도 정지(IDLE)일 때만 활성
         self._update_pose_move_gate()
+        # 외력 그래프 갱신
+        self._refresh_force_graph()
 
     # -----------------------------------------------------------------
     # 로봇 파라미터 탭 UI 동적 빌드
@@ -2128,6 +2139,74 @@ class HMIDashboardApp(QDialog):
         h.addWidget(sw)
         # 시스템 정보 그룹 아래(맨 끝 스페이서 앞)에 삽입
         self.vl_tab_sysinfo.insertWidget(self.vl_tab_sysinfo.count() - 1, grp)
+
+    # ── 외력 실시간 그래프 ──────────────────────────────────────────────
+    def _setup_force_graph(self):
+        FORCE_THRESHOLD = 20.0   # N — robot_params.yaml force_threshold 와 동일
+        HISTORY_SEC     = 30     # 가로축: 최근 30초
+        SAMPLE_RATE_HZ  = 7      # /robot/force_norm 발행 주기(약 7Hz)
+        maxlen = HISTORY_SEC * SAMPLE_RATE_HZ
+
+        self._force_buf = collections.deque([0.0] * maxlen, maxlen=maxlen)
+        self._force_threshold_line = FORCE_THRESHOLD
+
+        # matplotlib 캔버스 생성
+        fig = Figure(figsize=(4, 1.6), tight_layout=True)
+        fig.patch.set_facecolor('#F5F5F5')
+        self._force_ax = fig.add_subplot(111)
+        ax = self._force_ax
+
+        ax.set_facecolor('#FAFAFA')
+        ax.set_ylim(0, FORCE_THRESHOLD * 1.3)
+        ax.set_xlim(0, maxlen)
+        ax.set_ylabel('Force (N)', fontsize=8)
+        ax.set_xlabel(f'← 최근 {HISTORY_SEC}초', fontsize=7)
+        ax.tick_params(labelsize=7)
+        ax.set_xticks([])          # x축 눈금 숨김 (시간 흐름만 표현)
+
+        # 임계값 수평선
+        self._threshold_line = ax.axhline(
+            y=FORCE_THRESHOLD, color='red', linewidth=1.2,
+            linestyle='--', label=f'Threshold ({FORCE_THRESHOLD:.0f} N)'
+        )
+        ax.legend(fontsize=7, loc='upper right')
+
+        # 데이터 라인
+        xs = list(range(maxlen))
+        self._force_line, = ax.plot(xs, list(self._force_buf),
+                                    color='#1565C0', linewidth=1.2)
+
+        self._force_canvas = FigureCanvas(fig)
+        self._force_canvas.setMinimumHeight(140)
+
+        # 대시보드 탭 레이아웃 맨 아래에 삽입 (GroupBox 래핑)
+        grp = QGroupBox("External Force Monitor")
+        vl = QVBoxLayout(grp)
+        vl.setContentsMargins(4, 4, 4, 4)
+        vl.addWidget(self._force_canvas)
+
+        # tab_dashboard의 최상위 레이아웃을 찾아 추가
+        dash_layout = self.tab_dashboard.layout()
+        if dash_layout is not None:
+            dash_layout.addWidget(grp)
+
+    def _refresh_force_graph(self):
+        norm = self.node.force_norm
+        self._force_buf.append(norm)
+
+        ys = list(self._force_buf)
+        self._force_line.set_ydata(ys)
+
+        # 임계값 초과 시 라인 색 빨강으로 강조
+        color = 'red' if norm >= self._force_threshold_line else '#1565C0'
+        self._force_line.set_color(color)
+
+        # y축 상한: 데이터 최대값과 threshold 중 큰 쪽의 1.3배
+        peak = max(max(ys), self._force_threshold_line)
+        self._force_ax.set_ylim(0, peak * 1.3)
+
+        self._force_canvas.draw_idle()
+    # ────────────────────────────────────────────────────────────────────
 
 
 def main(args=None):
