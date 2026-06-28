@@ -2177,18 +2177,28 @@ class HMIDashboardApp(QDialog):
                                     color='#1565C0', linewidth=1.2)
 
         self._force_canvas = FigureCanvas(fig)
-        self._force_canvas.setMinimumHeight(140)
+        self._force_canvas.setMinimumHeight(200)
 
-        # 대시보드 탭 레이아웃 맨 아래에 삽입 (GroupBox 래핑)
-        grp = QGroupBox("External Force Monitor")
+        # tab_dashboard는 absolute geometry 레이아웃이라 addWidget 불가.
+        # 별도 탭으로 분리해서 깔끔하게 표시한다.
+        tab_force = QWidget()
+        vl_outer = QVBoxLayout(tab_force)
+        vl_outer.setContentsMargins(12, 12, 12, 12)
+        vl_outer.setSpacing(8)
+
+        # 현재값 레이블
+        self._force_val_label = QLabel("현재 외력: 0.00 N")
+        self._force_val_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        vl_outer.addWidget(self._force_val_label)
+
+        grp = QGroupBox("External Force (N) — 최근 30초")
         vl = QVBoxLayout(grp)
         vl.setContentsMargins(4, 4, 4, 4)
         vl.addWidget(self._force_canvas)
+        vl_outer.addWidget(grp)
+        vl_outer.addStretch()
 
-        # tab_dashboard의 최상위 레이아웃을 찾아 추가
-        dash_layout = self.tab_dashboard.layout()
-        if dash_layout is not None:
-            dash_layout.addWidget(grp)
+        self.tabWidget.addTab(tab_force, "Force Monitor")
 
     def _refresh_force_graph(self):
         norm = self.node.force_norm
@@ -2198,8 +2208,15 @@ class HMIDashboardApp(QDialog):
         self._force_line.set_ydata(ys)
 
         # 임계값 초과 시 라인 색 빨강으로 강조
-        color = 'red' if norm >= self._force_threshold_line else '#1565C0'
+        over = norm >= self._force_threshold_line
+        color = 'red' if over else '#1565C0'
         self._force_line.set_color(color)
+
+        # 현재값 레이블 갱신
+        self._force_val_label.setText(f"현재 외력: {norm:.2f} N")
+        self._force_val_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {'red' if over else 'black'};"
+        )
 
         # y축 상한: 데이터 최대값과 threshold 중 큰 쪽의 1.3배
         peak = max(max(ys), self._force_threshold_line)
