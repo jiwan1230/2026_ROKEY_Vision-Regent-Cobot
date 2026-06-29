@@ -47,7 +47,8 @@ liquid_height_detector_node:
     # cy < hand_roi_y_min_px 인 박스는 hand 감지에서 무시한다.
     # 640x480 기준 로봇 팔이 주로 y 0~250 에 위치하므로 250으로 설정.
     # 실제 사람 손이 들어오는 영역이 더 위쪽이라면 값을 낮춰야 함.
-    hand_roi_y_min_px: 250.0
+    # hand_roi_y_min_px: 250.0
+    hand_roi_y_min_px: 1.0
 
     # height 결과 안정화
     height_buffer_size: 5

@@ -50,7 +50,10 @@ def match_cups_to_anchors(cup_boxes, slot_anchors, slot_x_tolerance_px, row_y_to
             dy = abs(box.y1 - anchor_y)
             if dx > slot_x_tolerance_px or dy > row_y_tolerance_px:
                 continue
-            score = box.conf - dx * 0.01 - dy * 0.01
+            # 위치 우선: anchor에 가장 가까운 박스를 선택.
+            # confidence 기반 score는 cup/height bbox가 비슷한 위치에 있을 때
+            # 신뢰도 높은 엉뚱한 박스가 슬롯을 가로채는 문제가 있어 제거함.
+            score = -(dx + dy)
             if best_score[idx] is None or score > best_score[idx]:
                 best_score[idx] = score
                 slots[idx] = box
