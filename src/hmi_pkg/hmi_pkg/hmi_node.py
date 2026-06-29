@@ -73,6 +73,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QLabel, QGroupBox, QGridLayout, QVBoxLayout, QWidget,
     QDoubleSpinBox, QSpinBox, QFormLayout, QRadioButton, QButtonGroup, QHBoxLayout,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTabBar,
 )
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -476,6 +477,16 @@ class HMIDashboardApp(QDialog):
         for btn in self.findChildren(QPushButton):
             btn.setAutoDefault(False)
             btn.setDefault(False)
+
+        # 2026-06-28 soo: 탭 라벨 글자 잘림 방지.
+        # QSS가 QTabBar::tab에 font-weight:bold를 주는데, Qt는 탭 너비(size hint)를
+        # 일반 굵기 폭으로 계산해 볼드로 그릴 때 뒷글자가 잘림("Robot Control Log" 등).
+        # 탭바 폰트를 직접 볼드로 지정해 Qt가 볼드 폭 기준으로 너비를 잡게 한다.
+        for tabbar in self.findChildren(QTabBar):
+            f = tabbar.font()
+            f.setBold(True)
+            tabbar.setFont(f)
+            tabbar.setElideMode(Qt.ElideNone)
 
         # ── 운영 대시보드 탭 버튼 연결 ──────────────────────────────
         self.pushButton.clicked.connect(self.on_start)
@@ -2160,7 +2171,7 @@ class HMIDashboardApp(QDialog):
         ax.set_ylim(0, FORCE_THRESHOLD * 1.3)
         ax.set_xlim(0, maxlen)
         ax.set_ylabel('Force (N)', fontsize=8)
-        ax.set_xlabel(f'← 최근 {HISTORY_SEC}초', fontsize=7)
+        ax.set_xlabel(f'last {HISTORY_SEC} s', fontsize=7)
         ax.tick_params(labelsize=7)
         ax.set_xticks([])          # x축 눈금 숨김 (시간 흐름만 표현)
 
