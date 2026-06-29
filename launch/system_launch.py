@@ -24,7 +24,8 @@ def generate_launch_description():
     # this top-level launch file works out of the box too, while still
     # allowing overrides (ros2 launch ... model_path:=/path/to/your.pt).
     vision_share_dir = get_package_share_directory("vision_pkg")
-    default_model_path = os.path.join(vision_share_dir, "weights", "reagent_yolov8n.pt")
+    # default_model_path = os.path.join(vision_share_dir, "weights", "reagent_yolov8n.pt")
+    default_model_path = os.path.join(vision_share_dir, "weights", "best.pt")
     default_image_dir = os.path.join(vision_share_dir, "sample_images")
 
     launch_hmi_arg = DeclareLaunchArgument(

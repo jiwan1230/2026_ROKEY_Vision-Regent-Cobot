@@ -165,8 +165,8 @@ doosan_robot_control_node:
     poses.tray_transfer_2_tool_insert_pose: [640.0, 73.39, 130.98, 90.0, 180.0, -90.0]
     poses.tray_transfer_2_lift_pose: [640.0, 73.39, 220.0, 90.0, 180.0, -90.0]
     poses.tray_transfer_2_success_approach_pose: [421.22, -226.06, 220.0, 90.0, 180.0, -90.0]
-    poses.tray_transfer_2_success_place_pose: [421.22, -226.06, 112.0, 90.0, 180.0, -90.0]
-    poses.tray_transfer_2_tool_detach_pose: [340.0, -226.06, 112.0, 90.0, 180.0, -90.0]
+    poses.tray_transfer_2_success_place_pose: [421.22, -226.06, 122.0, 90.0, 180.0, -90.0]
+    poses.tray_transfer_2_tool_detach_pose: [340.0, -226.06, 122.0, 90.0, 180.0, -90.0]
 
     # ===== Refill target - tray 0 (실측, tube_gap=70 / Y축 패턴) =====
     poses.refill_target_0_0_approach_pose: [492.01, 149.0, 220.0, 90.0, 180.0, -90.0]
