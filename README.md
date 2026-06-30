@@ -165,56 +165,42 @@ State 2 Dispose > State 0 Refill > All State 1 Normal Transfer
 
 ## 6. Demo
 
-아래 데모는 `assets/demo/`에 영상 파일을 두고, `assets/images/`에 썸네일 이미지를 두는 방식으로 구성했습니다.  
-GitHub에서는 썸네일을 클릭하거나 `Watch Video` 링크를 클릭하면 각 시연 영상을 확인할 수 있습니다.
+아래 GIF를 통해 프로젝트 동작을 README에서 바로 확인할 수 있습니다.  
+각 GIF를 클릭하면 원본 데모 영상으로 이동합니다.
 
-> 썸네일이 깨진다면 `README.md`만 업로드된 상태입니다. 저장소 루트에 `assets/` 폴더를 함께 올려야 합니다.
+> GitHub에서 GIF가 보이지 않는다면 `README.md`만 업로드된 상태일 가능성이 큽니다. 저장소 루트에 `assets/` 폴더를 함께 올려야 합니다.
 
-<table>
-  <tr>
-    <td width="33%" align="center">
-      <a href="./assets/demo/full_scenario_10x.mp4">
-        <img src="./assets/images/demo_full_scenario_thumbnail.jpg" alt="Full Scenario Demo" width="100%">
-      </a>
-      <br>
-      <b>Full Scenario Demo</b>
-      <br>
-      <sub>Vision · HMI · Robot 전체 자동화 시나리오 10배속</sub>
-      <br>
-      <a href="./assets/demo/full_scenario_10x.mp4">Watch Video</a>
-    </td>
-    <td width="33%" align="center">
-      <a href="./assets/demo/realtime_inference_yolov8n.mp4">
-        <img src="./assets/images/demo_realtime_inference_thumbnail.jpg" alt="Realtime YOLOv8n Inference Demo" width="100%">
-      </a>
-      <br>
-      <b>Realtime YOLOv8n Inference</b>
-      <br>
-      <sub>cup / height / hand 검출 및 실시간 상태 인식</sub>
-      <br>
-      <a href="./assets/demo/realtime_inference_yolov8n.mp4">Watch Video</a>
-    </td>
-    <td width="33%" align="center">
-      <a href="./assets/demo/force_stop.mp4">
-        <img src="./assets/images/demo_force_stop_thumbnail.jpg" alt="Force Stop Safety Demo" width="100%">
-      </a>
-      <br>
-      <b>Force Stop Safety Demo</b>
-      <br>
-      <sub>외력 감지 기반 로봇 정지 및 HMI 안전 이벤트</sub>
-      <br>
-      <a href="./assets/demo/force_stop.mp4">Watch Video</a>
-    </td>
-  </tr>
-</table>
+### 1) Full Scenario Demo
+
+[![Full Scenario Demo](./assets/gifs/demo_full_scenario.gif)](./assets/demo/full_scenario_10x.mp4)
+
+- Vision · HMI · Robot 전체 자동화 시나리오
+- 시약 상태 인식 → 작업 판단 → 로봇 보충/폐기/트레이 이송 흐름 확인
+- 10배속 데모 영상
+
+### 2) Realtime YOLOv8n Inference Demo
+
+[![Realtime YOLOv8n Inference Demo](./assets/gifs/demo_realtime_inference.gif)](./assets/demo/realtime_inference_yolov8n.mp4)
+
+- `cup`, `height`, `hand` 3-class 검출
+- 실시간 시약통 액체 높이 추론
+- 손 감지 기반 Vision Safety 확인
+
+### 3) Force Stop Safety Demo
+
+[![Force Stop Safety Demo](./assets/gifs/demo_force_stop.gif)](./assets/demo/force_stop.mp4)
+
+- TCP 외력 감지 기반 로봇 정지
+- HMI 안전 이벤트 및 재개 흐름 확인
+- 협동로봇 작업 환경을 고려한 다층 안전 구조 시연
 
 ### Demo Asset Paths
 
-| Demo | Video Path | Thumbnail Path |
+| Demo | GIF Path | Video Path |
 |---|---|---|
-| Full Scenario | `assets/demo/full_scenario_10x.mp4` | `assets/images/demo_full_scenario_thumbnail.jpg` |
-| Realtime YOLO Inference | `assets/demo/realtime_inference_yolov8n.mp4` | `assets/images/demo_realtime_inference_thumbnail.jpg` |
-| Force Stop | `assets/demo/force_stop.mp4` | `assets/images/demo_force_stop_thumbnail.jpg` |
+| Full Scenario | `assets/gifs/demo_full_scenario.gif` | `assets/demo/full_scenario_10x.mp4` |
+| Realtime YOLOv8n Inference | `assets/gifs/demo_realtime_inference.gif` | `assets/demo/realtime_inference_yolov8n.mp4` |
+| Force Stop Safety | `assets/gifs/demo_force_stop.gif` | `assets/demo/force_stop.mp4` |
 
 ---
 
