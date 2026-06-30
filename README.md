@@ -165,50 +165,56 @@ State 2 Dispose > State 0 Refill > All State 1 Normal Transfer
 
 ## 6. Demo
 
-아래 영상은 실제 프로젝트 시연 파일을 GitHub에 올리기 좋은 경로와 파일명으로 정리한 것입니다.  
-README에서는 썸네일을 클릭하면 각 demo 영상을 열 수 있도록 구성했습니다.
+아래 데모는 `assets/demo/`에 영상 파일을 두고, `assets/images/`에 썸네일 이미지를 두는 방식으로 구성했습니다.  
+GitHub에서는 썸네일을 클릭하거나 `Watch Video` 링크를 클릭하면 각 시연 영상을 확인할 수 있습니다.
+
+> 썸네일이 깨진다면 `README.md`만 업로드된 상태입니다. 저장소 루트에 `assets/` 폴더를 함께 올려야 합니다.
 
 <table>
   <tr>
     <td width="33%" align="center">
-      <a href="assets/demo/full_scenario_10x.mp4">
-        <img src="assets/images/demo_full_scenario_thumbnail.png" alt="Full Scenario Demo" width="100%" />
+      <a href="./assets/demo/full_scenario_10x.mp4">
+        <img src="./assets/images/demo_full_scenario_thumbnail.jpg" alt="Full Scenario Demo" width="100%">
       </a>
-      <br />
+      <br>
       <b>Full Scenario Demo</b>
-      <br />
+      <br>
       <sub>Vision · HMI · Robot 전체 자동화 시나리오 10배속</sub>
+      <br>
+      <a href="./assets/demo/full_scenario_10x.mp4">Watch Video</a>
     </td>
     <td width="33%" align="center">
-      <a href="assets/demo/realtime_inference_yolov8n.mp4">
-        <img src="assets/images/demo_realtime_inference_thumbnail.png" alt="Realtime YOLOv8n Inference Demo" width="100%" />
+      <a href="./assets/demo/realtime_inference_yolov8n.mp4">
+        <img src="./assets/images/demo_realtime_inference_thumbnail.jpg" alt="Realtime YOLOv8n Inference Demo" width="100%">
       </a>
-      <br />
+      <br>
       <b>Realtime YOLOv8n Inference</b>
-      <br />
+      <br>
       <sub>cup / height / hand 검출 및 실시간 상태 인식</sub>
+      <br>
+      <a href="./assets/demo/realtime_inference_yolov8n.mp4">Watch Video</a>
     </td>
     <td width="33%" align="center">
-      <a href="assets/demo/force_stop.mp4">
-        <img src="assets/images/demo_force_stop_thumbnail.png" alt="Force Stop Demo" width="100%" />
+      <a href="./assets/demo/force_stop.mp4">
+        <img src="./assets/images/demo_force_stop_thumbnail.jpg" alt="Force Stop Safety Demo" width="100%">
       </a>
-      <br />
+      <br>
       <b>Force Stop Safety Demo</b>
-      <br />
+      <br>
       <sub>외력 감지 기반 로봇 정지 및 HMI 안전 이벤트</sub>
+      <br>
+      <a href="./assets/demo/force_stop.mp4">Watch Video</a>
     </td>
   </tr>
 </table>
 
 ### Demo Asset Paths
 
-| Demo | Path | Description |
+| Demo | Video Path | Thumbnail Path |
 |---|---|---|
-| Full Scenario | `assets/demo/full_scenario_10x.mp4` | 전체 자동화 시나리오 10배속 |
-| Realtime YOLO Inference | `assets/demo/realtime_inference_yolov8n.mp4` | YOLOv8n 실시간 추론 및 상태 표시 |
-| Force Stop | `assets/demo/force_stop.mp4` | 외력 감지 기반 비상정지 시연 |
-
-> GitHub에서 영상이 바로 재생되지 않는 환경에서는 썸네일을 클릭하거나 영상 파일 경로를 직접 열어 확인할 수 있습니다.
+| Full Scenario | `assets/demo/full_scenario_10x.mp4` | `assets/images/demo_full_scenario_thumbnail.jpg` |
+| Realtime YOLO Inference | `assets/demo/realtime_inference_yolov8n.mp4` | `assets/images/demo_realtime_inference_thumbnail.jpg` |
+| Force Stop | `assets/demo/force_stop.mp4` | `assets/images/demo_force_stop_thumbnail.jpg` |
 
 ---
 
